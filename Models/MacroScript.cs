@@ -1,0 +1,37 @@
+namespace SmartMacroAI.Models;
+
+/// <summary>
+/// Root object representing a complete macro workflow.
+/// Contains metadata + the ordered list of actions that make up the automation.
+/// This is the unit that gets serialized to / deserialized from a .json file.
+/// </summary>
+public class MacroScript
+{
+    public string Name { get; set; } = "Untitled Macro";
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The Win32 window title pattern used to locate the target HWND at runtime.
+    /// Supports partial matching (e.g. "Notepad" will match "Untitled - Notepad").
+    /// </summary>
+    public string TargetWindowTitle { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// How many times the entire action list should loop. 0 = infinite.
+    /// </summary>
+    public int RepeatCount { get; set; } = 1;
+
+    /// <summary>
+    /// Delay in minutes between each iteration. 0 = no delay (back-to-back).
+    /// Useful for scheduled tasks like "run every 5 minutes".
+    /// </summary>
+    public int IntervalMinutes { get; set; }
+
+    /// <summary>
+    /// Ordered list of actions that form the macro workflow.
+    /// </summary>
+    public List<MacroAction> Actions { get; set; } = [];
+}

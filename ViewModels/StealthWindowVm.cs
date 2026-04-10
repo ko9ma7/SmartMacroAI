@@ -1,0 +1,33 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace SmartMacroAI.ViewModels;
+
+public sealed class StealthWindowVm : INotifyPropertyChanged
+{
+    public IntPtr Hwnd { get; set; }
+    public string WindowTitle { get; set; } = "";
+
+    private bool _isHidden;
+    public bool IsHidden
+    {
+        get => _isHidden;
+        set
+        {
+            if (_isHidden != value)
+            {
+                _isHidden = value;
+                Notify();
+                Notify(nameof(StatusText));
+                Notify(nameof(ToggleLabel));
+            }
+        }
+    }
+
+    public string StatusText => _isHidden ? "Ẩn" : "Hiện";
+    public string ToggleLabel => _isHidden ? "Show" : "Hide";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void Notify([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}

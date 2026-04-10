@@ -1,0 +1,16 @@
+# Bỏ qua các thư mục build của .NET
+bin/
+obj/
+
+# Bỏ qua các file cấu hình tạm của Visual Studio / IDE
+.vs/
+.vscode/
+*.user
+
+# Bỏ qua dữ liệu cục bộ của người dùng (Không đẩy lên Git)
+Scripts/
+templates/
+hotkey_settings.json
+
+# Bỏ qua các file được tải về bởi Playwright
+.playwright/
