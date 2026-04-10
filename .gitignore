@@ -14,3 +14,10 @@ hotkey_settings.json
 
 # Bỏ qua các file được tải về bởi Playwright
 .playwright/
+
+# Build artifacts & published output
+publish/
+installer_out/
+
+# Obfuscator output
+obfuscar.xml

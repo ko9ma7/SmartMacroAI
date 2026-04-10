@@ -9,13 +9,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <!-- <ApplicationIcon>Assets\app.ico</ApplicationIcon> -->
+    <ApplicationIcon>Assets\logo.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyTitle>SmartMacroAI</AssemblyTitle>
     <Product>SmartMacroAI</Product>
     <Company>Phạm Duy</Company>
     <Copyright>Created by Phạm Duy - Giải pháp tự động hóa thông minh.</Copyright>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
     <Description>SmartMacroAI - RPA Automation Tool for Windows. Non-invasive macro automation with Image and OCR recognition.</Description>
   </PropertyGroup>
 
@@ -37,3 +38,4 @@
   </ItemGroup>
 
 </Project>
+

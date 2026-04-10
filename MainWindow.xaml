@@ -53,7 +53,7 @@
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="SmartMacroAI" FontSize="16" FontWeight="Bold"
                                            Foreground="{StaticResource TextBrush}" />
-                                <TextBlock Text="v1.0.0" FontSize="10"
+                                <TextBlock Text="v1.1.0" FontSize="10"
                                            Foreground="{StaticResource OverlayBrush}" Margin="0,-1,0,0" />
                             </StackPanel>
                         </StackPanel>
@@ -739,7 +739,7 @@
                                             </Border.Background>
                                         </Border>
                                         <TextBlock Text="SmartMacroAI" FontSize="28" FontWeight="Bold" Foreground="#11111B" HorizontalAlignment="Center" />
-                                        <TextBlock Text="v1.0.0 — RPA Automation Tool" FontSize="13" Foreground="#313244" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                                        <TextBlock Text="v1.1.0 — RPA Automation Tool" FontSize="13" Foreground="#313244" HorizontalAlignment="Center" Margin="0,4,0,0" />
                                     </StackPanel>
                                 </Border>
 
@@ -770,6 +770,27 @@
                                             </Hyperlink>
                                         </TextBlock>
                                     </StackPanel>
+                                </Border>
+
+                                <!-- Update Checker -->
+                                <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
+                                    <DockPanel>
+                                        <Button x:Name="BtnCheckUpdates"
+                                                DockPanel.Dock="Right"
+                                                Content="🔄 Kiểm tra cập nhật"
+                                                Click="BtnCheckUpdates_Click"
+                                                Style="{StaticResource PrimaryButtonStyle}"
+                                                Padding="14,8" FontSize="12"
+                                                VerticalAlignment="Center" />
+                                        <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="Cập nhật phần mềm"
+                                                       FontSize="13" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextBrush}" />
+                                            <TextBlock Text="Phiên bản hiện tại: v1.1.0"
+                                                       FontSize="11" Margin="0,3,0,0"
+                                                       Foreground="{StaticResource SubtextBrush}" />
+                                        </StackPanel>
+                                    </DockPanel>
                                 </Border>
 
                                 <!-- Coffee / Support -->
@@ -844,7 +865,7 @@
                 <TextBlock DockPanel.Dock="Right" FontSize="11"
                            Foreground="{StaticResource OverlayBrush}"
                            VerticalAlignment="Center">
-                    <Run Text="SmartMacroAI v1.0.0" />
+                    <Run Text="SmartMacroAI v1.1.0" />
                     <Run Text=" | " />
                     <Run Text=".NET 8.0" />
                 </TextBlock>

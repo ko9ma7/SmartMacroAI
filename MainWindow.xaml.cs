@@ -1,5 +1,9 @@
 ﻿using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -37,6 +41,20 @@ public partial class MainWindow : Window
     private readonly Dictionary<IntPtr, string> _hiddenWindows = new();
     private readonly ObservableCollection<StealthWindowVm> _stealthRows = [];
 
+    // ── Update Checker ──
+    private const string CurrentVersion   = "v1.1.0";
+    private const string GitHubApiUrl     = "https://api.github.com/repos/TroniePh/SmartMacroAI/releases/latest";
+    private const string LandingPageUrl   = "https://tronieph.github.io/SmartMacroAI-Website/";
+    private static readonly HttpClient _httpClient = CreateHttpClient();
+
+    private static HttpClient CreateHttpClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        client.DefaultRequestHeaders.UserAgent.Add(
+            new ProductInfoHeaderValue("SmartMacroAI", "1.1.0"));
+        return client;
+    }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -58,6 +76,7 @@ public partial class MainWindow : Window
         _hwndSource?.AddHook(WndProc);
         RegisterHotkeys();
         InitSettingsUi();
+        _ = CheckForUpdatesAsync(silent: true);
     }
 
     // ═══════════════════════════════════════════════════
@@ -1116,6 +1135,107 @@ public partial class MainWindow : Window
             AppendLog($"[OCR Test] Extracted {text.Length} chars.");
         }
         catch (Exception ex) { TxtOcrResult.Text = $"Error: {ex.Message}"; TxtOcrResult.Foreground = (Brush)FindResource("AccentRedBrush"); }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  UPDATE CHECKER
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>
+    /// Fetches the latest GitHub release tag and compares it to CurrentVersion.
+    /// When silent=true (startup), shows a dialog only if a newer version exists.
+    /// When silent=false (manual), always reports the result to the user.
+    /// </summary>
+    private async Task CheckForUpdatesAsync(bool silent = false)
+    {
+        try
+        {
+            string json = await _httpClient.GetStringAsync(GitHubApiUrl).ConfigureAwait(false);
+
+            using JsonDocument doc = JsonDocument.Parse(json);
+            string latestTag = doc.RootElement
+                .GetProperty("tag_name")
+                .GetString() ?? string.Empty;
+
+            bool isNewer = IsNewerVersion(latestTag, CurrentVersion);
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (isNewer)
+                {
+                    var result = MessageBox.Show(
+                        $"🎉 Phiên bản mới [{latestTag}] đã có sẵn!\n\n" +
+                        $"Phiên bản hiện tại của bạn: {CurrentVersion}\n\n" +
+                        "Bạn có muốn mở trang tải về để cập nhật không?",
+                        "SmartMacroAI — Cập nhật mới",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Information);
+
+                    if (result == MessageBoxResult.Yes)
+                        Process.Start(new ProcessStartInfo(LandingPageUrl) { UseShellExecute = true });
+                }
+                else if (!silent)
+                {
+                    MessageBox.Show(
+                        $"✅ Bạn đang dùng phiên bản mới nhất ({CurrentVersion}).",
+                        "SmartMacroAI — Kiểm tra cập nhật",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+
+                AppendLog(isNewer
+                    ? $"[Update] Phiên bản mới: {latestTag} (hiện tại: {CurrentVersion})"
+                    : $"[Update] Đang dùng phiên bản mới nhất: {CurrentVersion}");
+            });
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            if (!silent)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                    MessageBox.Show(
+                        "Không thể kiểm tra cập nhật. Vui lòng kiểm tra kết nối mạng.\n\n" +
+                        $"Chi tiết: {ex.Message}",
+                        "SmartMacroAI — Lỗi kết nối",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="remoteTag"/> is strictly greater than
+    /// <paramref name="localTag"/>. Strips the leading 'v' before comparison so
+    /// "v1.0.1" > "v1.0.0" works correctly.
+    /// </summary>
+    private static bool IsNewerVersion(string remoteTag, string localTag)
+    {
+        static Version? Parse(string tag)
+        {
+            string clean = tag.TrimStart('v', 'V').Split('-')[0];
+            return Version.TryParse(clean, out var v) ? v : null;
+        }
+
+        Version? remote = Parse(remoteTag);
+        Version? local  = Parse(localTag);
+        return remote is not null && local is not null && remote > local;
+    }
+
+    private async void BtnCheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn)
+        {
+            btn.IsEnabled = false;
+            btn.Content   = "Đang kiểm tra…";
+        }
+
+        await CheckForUpdatesAsync(silent: false);
+
+        if (sender is Button b)
+        {
+            b.IsEnabled = true;
+            b.Content   = "🔄 Kiểm tra cập nhật";
+        }
     }
 
     // ═══════════════════════════════════════════════════
