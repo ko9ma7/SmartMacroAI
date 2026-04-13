@@ -46,9 +46,15 @@ public partial class ActionEditDialog : Window
                 AddField("WaitForImage", w.WaitForImage, browse: true, displayCaption: "Chờ ảnh mẫu (đường dẫn)");
                 AddField("WaitThreshold", w.WaitThreshold.ToString("F2"), displayCaption: "Ngưỡng khớp ảnh");
                 AddField("WaitTimeoutMs", w.WaitTimeoutMs.ToString(), displayCaption: "Hết thời chờ tối đa (ms)");
+                AddField("WaitForOcrContains", w.WaitForOcrContains, displayCaption: "Chờ OCR chứa chuỗi (để trống nếu không dùng)");
+                AddField("OcrRegionX", w.OcrRegionX.ToString(), displayCaption: "OCR vùng X (màn hình)");
+                AddField("OcrRegionY", w.OcrRegionY.ToString(), displayCaption: "OCR vùng Y (màn hình)");
+                AddField("OcrRegionWidth", w.OcrRegionWidth.ToString(), displayCaption: "OCR vùng rộng");
+                AddField("OcrRegionHeight", w.OcrRegionHeight.ToString(), displayCaption: "OCR vùng cao");
+                AddField("OcrPollIntervalMs", w.OcrPollIntervalMs.ToString(), displayCaption: "OCR poll (ms)");
                 FieldsPanel.Children.Add(new TextBlock
                 {
-                    Text = "Để trống \"Chờ ảnh mẫu\" nếu chỉ cần chờ cố định (ms). Khi có đường dẫn, macro sẽ quét cho đến khi thấy ảnh hoặc hết thời gian.",
+                    Text = "Để trống \"Chờ ảnh mẫu\" nếu chỉ cần chờ cố định (ms). Khi có đường dẫn, macro sẽ quét cho đến khi thấy ảnh hoặc hết thời gian. Khi điền \"Chờ OCR chứa chuỗi\" và kích thước vùng > 0, macro sẽ poll OCR trên vùng màn hình đó.",
                     Foreground = LabelBrush,
                     FontSize = 10,
                     TextWrapping = TextWrapping.Wrap,
@@ -148,6 +154,11 @@ public partial class ActionEditDialog : Window
             case SetVariableAction sv:
                 AddField("VarName", sv.VarName, displayCaption: "Tên biến");
                 AddField("Value", sv.Value, displayCaption: "Giá trị");
+                AddComboFieldTagged("ValueSource",
+                [
+                    ("Manual", "Nhập tay (Manual)"),
+                    ("Clipboard", "Clipboard"),
+                ], sv.ValueSource, "Nguồn giá trị");
                 AddComboFieldTagged("Operation",
                 [
                     ("Set", "Thiết lập (Set)"),
@@ -156,7 +167,7 @@ public partial class ActionEditDialog : Window
                 ], sv.Operation, "Thao tác");
                 FieldsPanel.Children.Add(new TextBlock
                 {
-                    Text = "Giá trị hỗ trợ {biến_khác} và ${biến_kịch_bản} (thay khi chạy).",
+                    Text = "Giá trị hỗ trợ {biến_khác}, {{tên}}, và ${biến_kịch_bản}. Nguồn Clipboard bỏ qua ô Giá trị.",
                     Foreground = LabelBrush,
                     FontSize = 10,
                     TextWrapping = TextWrapping.Wrap,
@@ -165,7 +176,7 @@ public partial class ActionEditDialog : Window
                 break;
             case IfVariableAction iv:
                 AddField("VarName", iv.VarName, displayCaption: "Tên biến");
-                AddComboField("CompareOp", ["==", "!=", ">", "<", ">=", "<="], iv.CompareOp, displayCaption: "Toán tử so sánh");
+                AddComboField("CompareOp", ["==", "!=", "contains", "notcontains", ">", "<", ">=", "<="], iv.CompareOp, displayCaption: "Toán tử so sánh");
                 AddField("Value", iv.Value, displayCaption: "Giá trị so sánh");
                 FieldsPanel.Children.Add(new TextBlock
                 {
@@ -196,6 +207,57 @@ public partial class ActionEditDialog : Window
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 8, 0, 0),
                 });
+                break;
+            case OcrRegionAction ocr:
+                AddField("ScreenX", ocr.ScreenX.ToString(), displayCaption: "Vùng màn hình X");
+                AddField("ScreenY", ocr.ScreenY.ToString(), displayCaption: "Vùng màn hình Y");
+                AddField("ScreenWidth", ocr.ScreenWidth.ToString(), displayCaption: "Rộng (px)");
+                AddField("ScreenHeight", ocr.ScreenHeight.ToString(), displayCaption: "Cao (px)");
+                AddField("OutputVariableName", ocr.OutputVariableName, displayCaption: "Tên biến lưu kết quả (không cần {{ }})");
+                var btnSnip = new Button
+                {
+                    Content = "Chọn vùng màn hình (kéo thả)",
+                    Margin = new Thickness(0, 8, 0, 0),
+                    Padding = new Thickness(12, 8, 12, 8),
+                    Background = AccentBrush,
+                    Foreground = Brushes.White,
+                    BorderThickness = new Thickness(0),
+                    ToolTip = "Kéo chọn vùng; tọa độ màn hình sẽ điền vào các ô phía trên.",
+                };
+                btnSnip.Click += (_, _) =>
+                {
+                    var snip = new SnippingToolWindow();
+                    if (snip.ShowDialog() != true)
+                        return;
+                    System.Drawing.Rectangle r = snip.SelectedScreenRectangle;
+                    if (_fields.TryGetValue("ScreenX", out var tbx)) tbx.Text = r.X.ToString();
+                    if (_fields.TryGetValue("ScreenY", out var tby)) tby.Text = r.Y.ToString();
+                    if (_fields.TryGetValue("ScreenWidth", out var tbw)) tbw.Text = r.Width.ToString();
+                    if (_fields.TryGetValue("ScreenHeight", out var tbh)) tbh.Text = r.Height.ToString();
+                };
+                FieldsPanel.Children.Add(btnSnip);
+                FieldsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Windows.Media.Ocr — kết quả lưu vào {{tên_biến}} và last_ocr.",
+                    Foreground = LabelBrush,
+                    FontSize = 10,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
+                });
+                break;
+            case ClearVariableAction cv:
+                AddField("VarName", cv.VarName, displayCaption: "Tên biến (để trống = xóa hết)");
+                FieldsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Để trống tên: xóa toàn bộ biến chuỗi runtime.",
+                    Foreground = LabelBrush,
+                    FontSize = 10,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
+                });
+                break;
+            case LogVariableAction lv:
+                AddField("VarName", lv.VarName, displayCaption: "Tên biến");
                 break;
         }
     }
@@ -467,6 +529,12 @@ public partial class ActionEditDialog : Window
                     w.WaitForImage = GetFieldValue("WaitForImage");
                     w.WaitThreshold = double.Parse(GetFieldValue("WaitThreshold"));
                     w.WaitTimeoutMs = int.Parse(GetFieldValue("WaitTimeoutMs"));
+                    w.WaitForOcrContains = GetFieldValue("WaitForOcrContains");
+                    w.OcrRegionX = int.TryParse(GetFieldValue("OcrRegionX"), out int ox) ? ox : 0;
+                    w.OcrRegionY = int.TryParse(GetFieldValue("OcrRegionY"), out int oy) ? oy : 0;
+                    w.OcrRegionWidth = int.TryParse(GetFieldValue("OcrRegionWidth"), out int ow) ? ow : 0;
+                    w.OcrRegionHeight = int.TryParse(GetFieldValue("OcrRegionHeight"), out int oh) ? oh : 0;
+                    w.OcrPollIntervalMs = int.TryParse(GetFieldValue("OcrPollIntervalMs"), out int op) ? Math.Clamp(op, 50, 5000) : 500;
                     w.DelayMin = w.DelayMax = w.Milliseconds;
                     break;
                 case RepeatAction rep:
@@ -516,6 +584,9 @@ public partial class ActionEditDialog : Window
                 case SetVariableAction sv:
                     sv.VarName = GetFieldValue("VarName");
                     sv.Value = GetFieldValue("Value");
+                    sv.ValueSource = GetComboValue("ValueSource");
+                    if (string.IsNullOrWhiteSpace(sv.ValueSource))
+                        sv.ValueSource = "Manual";
                     sv.Operation = GetComboValue("Operation");
                     break;
                 case IfVariableAction iv:
@@ -527,6 +598,19 @@ public partial class ActionEditDialog : Window
                     lg.Message = GetFieldValue("Message");
                     break;
                 case TryCatchAction:
+                    break;
+                case OcrRegionAction ocr:
+                    ocr.ScreenX = int.Parse(GetFieldValue("ScreenX"));
+                    ocr.ScreenY = int.Parse(GetFieldValue("ScreenY"));
+                    ocr.ScreenWidth = int.Parse(GetFieldValue("ScreenWidth"));
+                    ocr.ScreenHeight = int.Parse(GetFieldValue("ScreenHeight"));
+                    ocr.OutputVariableName = GetFieldValue("OutputVariableName");
+                    break;
+                case ClearVariableAction cv:
+                    cv.VarName = GetFieldValue("VarName");
+                    break;
+                case LogVariableAction lv:
+                    lv.VarName = GetFieldValue("VarName");
                     break;
             }
             DialogResult = true;

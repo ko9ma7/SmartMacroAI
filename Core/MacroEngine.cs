@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using WinForms = System.Windows.Forms;
 using SmartMacroAI.Localization;
 using SmartMacroAI.Models;
 
@@ -37,6 +38,8 @@ public sealed class VariableManager
 
     public void Clear() => _vars.Clear();
 
+    public void Remove(string name) => _vars.Remove(name.Trim());
+
     /// <summary>Replace <c>{varName}</c> with each stored value (string form).</summary>
     public string Resolve(string input)
     {
@@ -55,6 +58,16 @@ public sealed class VariableManager
 
     public string DumpAll() =>
         string.Join(", ", _vars.Select(kv => $"{kv.Key}={kv.Value}"));
+
+    /// <summary>Copies all stored values as strings into <paramref name="target"/> (for <c>{{ }}</c> interpolation).</summary>
+    public void CopyStringValuesInto(IDictionary<string, string> target)
+    {
+        foreach (var kv in _vars)
+            target[kv.Key] = kv.Value?.ToString() ?? string.Empty;
+    }
+
+    public IEnumerable<KeyValuePair<string, string>> EnumerateStringVariables() =>
+        _vars.Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value?.ToString() ?? string.Empty));
 }
 
 /// <summary>
@@ -69,6 +82,36 @@ public sealed class MacroEngine
     private PlaywrightEngine? _playwrightEngine;
 
     private readonly BezierMouseMover _mouseMover = new();
+
+    private readonly VariableStore _variableStore = new();
+
+    private OcrService _ocrService = new();
+
+    private readonly MacroRunner _macroRunner = new();
+
+    private readonly BehaviorRandomizerState _behaviorState = new();
+
+    private int _currentMacroIteration;
+
+    private string _lastOcrText = string.Empty;
+
+    private double _lastImageMatchConfidence;
+
+    /// <summary>Thread-safe string variables (<c>{{name}}</c>) for the current run; UI may snapshot while a macro runs.</summary>
+    public VariableStore RuntimeStringVariables => _variableStore;
+
+    /// <summary>Merged view for the Dashboard variables panel (engine + string store).</summary>
+    public IReadOnlyList<(string Name, string Value, string Source)> GetLiveVariableRows()
+    {
+        var d = new Dictionary<string, (string V, string S)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in _vars.EnumerateStringVariables())
+            d[kv.Key] = (kv.Value, "Engine");
+        foreach (var kv in _variableStore.Snapshot())
+            d[kv.Key] = (kv.Value.Value, kv.Value.Source);
+        return d.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(x => (x.Key, x.Value.V, x.Value.S))
+            .ToList();
+    }
 
     /// <summary>
     /// Current Win32 target for desktop actions. Updated when <see cref="LaunchAndBindAction"/> runs.
@@ -237,10 +280,19 @@ public sealed class MacroEngine
         }
 
         _vars.Clear();
+        _variableStore.Clear();
+        _lastOcrText = string.Empty;
+        _lastImageMatchConfidence = 0;
         _runReport.Clear();
+
+        _ocrService = new OcrService(AppSettings.Load().OcrLanguageTag);
 
         _mouseMover.ReloadFromAppSettings();
         _mouseMover.SetRawInputNotifyWindow(_runtimeTargetHwnd);
+
+        _macroRunner.Timing.ResetSession();
+        _behaviorState.Reset();
+        Win32MouseInput.UseAntiDetectionMouseStyle = AppSettings.Load().AntiDetectionEnabled;
 
         CancellationTokenSource? autoStopCts = null;
         CancellationToken loopToken = token;
@@ -315,7 +367,30 @@ public sealed class MacroEngine
     private string ExpandRuntime(string? s)
     {
         string t = MacroVariableInterpolator.Expand(s ?? "", _runtimeVariables);
+        Action<string>? onMissing = key =>
+            OnLog("    ⚠ Biến '{{" + key + "}}' chưa có giá trị — thay bằng chuỗi rỗng");
+        for (int round = 0; round < 8; round++)
+        {
+            string prev = t;
+            t = MacroVariableInterpolator.ExpandDoubleCurly(t, BuildDoubleCurlyDictionary(), round == 0 ? onMissing : null);
+            if (string.Equals(prev, t, StringComparison.Ordinal))
+                break;
+        }
+
         return _vars.Resolve(t);
+    }
+
+    private Dictionary<string, string> BuildDoubleCurlyDictionary()
+    {
+        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        d["timestamp"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        d["loop_index"] = _currentMacroIteration.ToString(CultureInfo.InvariantCulture);
+        d["last_ocr"] = _lastOcrText;
+        d["last_image_match"] = _lastImageMatchConfidence.ToString("0.####", CultureInfo.InvariantCulture);
+        foreach (var kv in _variableStore.Snapshot())
+            d[kv.Key] = kv.Value.Value;
+        _vars.CopyStringValuesInto(d);
+        return d;
     }
 
     // ═══════════════════════════════════════════════
@@ -337,6 +412,7 @@ public sealed class MacroEngine
                 throw new InvalidOperationException("Target window was closed during execution.");
 
             ApplyIterationVariables(script, i);
+            _currentMacroIteration = i;
 
             string label = infinite ? $"#{i} (infinite)" : $"#{i}/{script.RepeatCount}";
             OnLog($"── Iteration {label} ──");
@@ -526,6 +602,8 @@ public sealed class MacroEngine
         {
             "==" => string.Equals(left, right, StringComparison.Ordinal),
             "!=" => !string.Equals(left, right, StringComparison.Ordinal),
+            "contains" => left.Contains(right, StringComparison.OrdinalIgnoreCase),
+            "notcontains" => !left.Contains(right, StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
     }
@@ -546,6 +624,28 @@ public sealed class MacroEngine
             {
                 OnLog($"  [{idx}] {action.DisplayName} — SKIPPED (disabled)");
                 continue;
+            }
+
+            try
+            {
+                var appCfg = AppSettings.Load();
+                await BehaviorRandomizer.BetweenActionsAsync(
+                    _behaviorState,
+                    appCfg,
+                    HardwareMode,
+                    _runtimeTargetHwnd,
+                    p => _mouseMover.MoveToAsync(p, BezierMouseMover.ParseProfile(appCfg.MouseProfileName), token),
+                    (b, v, ct) => _macroRunner.Timing.WaitAsync(b, v, ct),
+                    OnLog,
+                    token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                OnLog($"[Anti-Detection] ⚠ {ex.Message}");
             }
 
             ActionStarted?.Invoke(action, idx);
@@ -611,7 +711,24 @@ public sealed class MacroEngine
 
                 case SetVariableAction setVar:
                 {
-                    string resolved = ExpandRuntime(setVar.Value);
+                    string resolved;
+                    if (string.Equals(setVar.ValueSource, "Clipboard", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            resolved = WinForms.Clipboard.GetText() ?? string.Empty;
+                        }
+                        catch (Exception ex)
+                        {
+                            resolved = string.Empty;
+                            OnLog($"    ⚠ Clipboard: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        resolved = ExpandRuntime(setVar.Value);
+                    }
+
                     string op = (setVar.Operation ?? "Set").Trim();
                     string name = setVar.VarName.Trim();
                     if (string.Equals(op, "Increment", StringComparison.OrdinalIgnoreCase))
@@ -633,13 +750,51 @@ public sealed class MacroEngine
                         _vars.Set(name, resolved);
                     }
 
+                    string strVal = _vars.Get(name)?.ToString() ?? _vars.GetString(name, string.Empty);
+                    _variableStore.Set(name, strVal,
+                        string.Equals(setVar.ValueSource, "Clipboard", StringComparison.OrdinalIgnoreCase)
+                            ? "Clipboard"
+                            : "Manual");
+
                     OnLog($"    → VAR {name} = {_vars.Get(name)} [{op}]");
+                    break;
+                }
+
+                case OcrRegionAction ocrRegion:
+                    await ExecuteOcrRegionAsync(ocrRegion, token).ConfigureAwait(false);
+                    break;
+
+                case ClearVariableAction clearVar:
+                {
+                    if (string.IsNullOrWhiteSpace(clearVar.VarName))
+                    {
+                        _variableStore.Clear();
+                        OnLog("    → Xóa tất cả biến chuỗi {{…}} (VariableStore)");
+                    }
+                    else
+                    {
+                        string n = clearVar.VarName.Trim();
+                        _variableStore.Remove(n);
+                        _vars.Remove(n);
+                        OnLog($"    → Xóa biến '{n}'");
+                    }
+
+                    break;
+                }
+
+                case LogVariableAction logVar:
+                {
+                    string n = logVar.VarName.Trim();
+                    string v = _variableStore.Get(n, _vars.GetString(n, string.Empty));
+                    OnLog($"    → LOG VAR: {n} = {Truncate(v, 200)}");
+                    _runReport.AppendLine($"[{DateTime.Now:HH:mm:ss}] {n} = {v}");
                     break;
                 }
 
                 case IfVariableAction ifVar:
                 {
-                    string left = _vars.GetString(ifVar.VarName.Trim(), "");
+                    string vn = ifVar.VarName.Trim();
+                    string left = _variableStore.Get(vn, _vars.GetString(vn, string.Empty));
                     string right = ExpandRuntime(ifVar.Value);
                     string cmp = (ifVar.CompareOp ?? "==").Trim();
                     bool condResult = EvaluateCondition(left, cmp, right);
@@ -680,6 +835,7 @@ public sealed class MacroEngine
                     break;
             }
 
+            _macroRunner.Timing.NotifyMacroStepCompleted();
             ActionCompleted?.Invoke(action, idx);
         }
     }
@@ -688,9 +844,50 @@ public sealed class MacroEngine
     //  ACTION HANDLERS
     // ═══════════════════════════════════════════════
 
+    private async Task ExecuteOcrRegionAsync(OcrRegionAction act, CancellationToken token)
+    {
+        var region = new Rectangle(act.ScreenX, act.ScreenY, act.ScreenWidth, act.ScreenHeight);
+        int vx = (int)System.Windows.SystemParameters.VirtualScreenLeft;
+        int vy = (int)System.Windows.SystemParameters.VirtualScreenTop;
+        int vw = (int)System.Windows.SystemParameters.VirtualScreenWidth;
+        int vh = (int)System.Windows.SystemParameters.VirtualScreenHeight;
+        var bounds = new Rectangle(vx, vy, vw, vh);
+        if (!bounds.IntersectsWith(region))
+        {
+            OnLog($"    ⚠ OCR vùng ngoài màn hình — bỏ qua bước ({region})");
+            return;
+        }
+
+        string varName = string.IsNullOrWhiteSpace(act.OutputVariableName) ? "ocr_result" : act.OutputVariableName.Trim();
+        OnLog($"  OCR region {region} → {{" + varName + "}}");
+
+        try
+        {
+            var (text, conf) = await _ocrService
+                .ReadTextFromRegionWithConfidenceAsync(region, TimeSpan.FromSeconds(5), token)
+                .ConfigureAwait(false);
+            if (conf < 0.6)
+                OnLog("    ⚠ Kết quả OCR có thể không chính xác (confidence < 60%)");
+
+            _lastOcrText = text;
+            _vars.Set(varName, text);
+            _variableStore.Set(varName, text, "OCR");
+            OnLog($"    → OCR ({Truncate(text, 80)})");
+        }
+        catch (OcrTimeoutException ex)
+        {
+            OnLog($"    ⚠ OCR: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            OnLog($"    ⚠ OCR lỗi: {ex.Message}");
+        }
+    }
+
     private async Task ExecuteClickAsync(ClickAction click, CancellationToken token)
     {
         IntPtr hwnd = _runtimeTargetHwnd;
+        var ad = AppSettings.Load();
 
         if (!Win32Api.IsInsideClientArea(hwnd, click.X, click.Y))
             OnLog($"  ⚠ ({click.X},{click.Y}) is outside client rect");
@@ -698,9 +895,38 @@ public sealed class MacroEngine
         if (HardwareMode)
         {
             Point screen = Win32Api.ClientPointToScreen(hwnd, click.X, click.Y);
-            MouseProfile profile = BezierMouseMover.ParseProfile(AppSettings.Load().MouseProfileName);
+            MouseProfile profile = BezierMouseMover.ParseProfile(ad.MouseProfileName);
             var btn = click.IsRightClick ? MouseButton.Right : MouseButton.Left;
             OnLog($"  HardwareMove+Click {btn} → screen ({screen.X},{screen.Y}) profile={profile}");
+
+            try
+            {
+                await BehaviorRandomizer.MaybeScrollBeforeClickAsync(ad, HardwareMode, Random.Shared, OnLog, token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                OnLog($"[Anti-Detection] ⚠ Scroll-before-click: {ex.Message}");
+            }
+
+            try
+            {
+                if (ad.AntiDetectionEnabled
+                    && BehaviorRandomizer.RollMisclick(Random.Shared, ad.AntiDetectionMisclickPercent))
+                {
+                    int ox = Random.Shared.Next(3, 9) * (Random.Shared.Next(2) == 0 ? -1 : 1);
+                    int oy = Random.Shared.Next(3, 9) * (Random.Shared.Next(2) == 0 ? -1 : 1);
+                    Point wrong = new(screen.X + ox, screen.Y + oy);
+                    OnLog($"  [Anti-Detection] Misclick recovery → ({wrong.X},{wrong.Y}) then correct.");
+                    await _mouseMover.MoveAndClickAsync(wrong, btn, profile, token).ConfigureAwait(false);
+                    await _macroRunner.Timing.WaitAsync(Random.Shared.Next(200, 501), 80, token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                OnLog($"[Anti-Detection] ⚠ Misclick sim: {ex.Message}");
+            }
+
             await _mouseMover.MoveAndClickAsync(screen, btn, profile, token).ConfigureAwait(false);
             return;
         }
@@ -719,6 +945,51 @@ public sealed class MacroEngine
 
     private async Task ExecuteWaitAsync(WaitAction wait, CancellationToken token)
     {
+        if (!string.IsNullOrWhiteSpace(wait.WaitForOcrContains) && wait.OcrRegionWidth > 0 && wait.OcrRegionHeight > 0)
+        {
+            var region = new Rectangle(wait.OcrRegionX, wait.OcrRegionY, wait.OcrRegionWidth, wait.OcrRegionHeight);
+            string needle = ExpandRuntime(wait.WaitForOcrContains);
+            int maxWait = Math.Max(0, wait.WaitTimeoutMs);
+            int poll = Math.Clamp(wait.OcrPollIntervalMs, 50, 5000);
+            int elapsed = 0;
+            OnLog($"  WaitForOcr contains \"{Truncate(needle, 40)}\" region={region} (timeout={maxWait}ms)");
+
+            while (elapsed < maxWait)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    var (text, conf) = await _ocrService
+                        .ReadTextFromRegionWithConfidenceAsync(region, TimeSpan.FromSeconds(5), token)
+                        .ConfigureAwait(false);
+                    if (conf < 0.6)
+                        OnLog("    ⚠ Kết quả OCR có thể không chính xác (confidence < 60%)");
+                    if (text.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        OnLog($"    → OCR khớp sau {elapsed}ms");
+                        return;
+                    }
+                }
+                catch (OcrTimeoutException ex)
+                {
+                    OnLog($"    ⚠ OCR timeout: {ex.Message}");
+                }
+                catch (Exception ex)
+                {
+                    OnLog($"    ⚠ WaitForOcr error: {ex.Message}");
+                }
+
+                int step = Math.Min(poll, maxWait - elapsed);
+                if (step <= 0)
+                    break;
+                await _macroRunner.Timing.WaitAsync(step, Math.Max(5, step / 4), token).ConfigureAwait(false);
+                elapsed += step;
+            }
+
+            OnLog($"    → WaitForOcr timeout ({maxWait}ms), continuing anyway");
+            return;
+        }
+
         if (!string.IsNullOrWhiteSpace(wait.WaitForImage))
         {
             EnsureDesktopTargetBound();
@@ -763,7 +1034,7 @@ public sealed class MacroEngine
                 if (step <= 0)
                     break;
 
-                await Task.Delay(step, token).ConfigureAwait(false);
+                await _macroRunner.Timing.WaitAsync(step, Math.Max(10, step / 4), token).ConfigureAwait(false);
                 elapsed += step;
             } while (elapsed < maxWait);
 
@@ -798,7 +1069,8 @@ public sealed class MacroEngine
             OnLog($"  Wait {ms}ms");
         }
 
-        await Task.Delay(ms, token).ConfigureAwait(false);
+        int variance = min != max ? Math.Max(1, (max - min) / 2) : Math.Max(1, ms / 4);
+        await _macroRunner.Timing.WaitAsync(ms, variance, token).ConfigureAwait(false);
     }
 
     private async Task ExecuteRepeatAsync(RepeatAction repeat, CancellationToken token)
@@ -844,7 +1116,8 @@ public sealed class MacroEngine
 
             iteration++;
             if (repeat.IntervalMs > 0 && (infinite || iteration < repeat.RepeatCount))
-                await Task.Delay(repeat.IntervalMs, token).ConfigureAwait(false);
+                await _macroRunner.Timing.WaitAsync(repeat.IntervalMs, Math.Max(5, repeat.IntervalMs / 4), token)
+                    .ConfigureAwait(false);
         }
 
         OnLog($"    → Loop finished after {iteration} iteration(s)");
@@ -862,6 +1135,32 @@ public sealed class MacroEngine
         string text = ExpandRuntime(type.Text);
         OnLog($"  TypeText \"{Truncate(text, 40)}\" (delay={type.KeyDelayMs}ms){suffix}");
 
+        var ad = AppSettings.Load();
+        bool scanHardware = HardwareMode && ad.AntiDetectionEnabled && ad.AntiDetectionUseScanCodeTyping;
+
+        if (scanHardware)
+        {
+            foreach (char c in text)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    if (!InputSpoofingService.TrySendCharHardware(c))
+                        Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
+                }
+                catch (Exception ex)
+                {
+                    OnLog($"    ⚠ Scan-type fallback: {ex.Message}");
+                    Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
+                }
+
+                int baseD = type.KeyDelayMs > 0 ? type.KeyDelayMs : Random.Shared.Next(40, 121);
+                await _macroRunner.Timing.WaitAsync(baseD, Math.Max(8, baseD / 2), token).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         if (type.KeyDelayMs <= 0)
         {
             Win32Api.ControlSendText(target, text);
@@ -872,7 +1171,8 @@ public sealed class MacroEngine
             {
                 token.ThrowIfCancellationRequested();
                 Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
-                await Task.Delay(type.KeyDelayMs, token);
+                await _macroRunner.Timing.WaitAsync(type.KeyDelayMs, Math.Max(5, type.KeyDelayMs / 2), token)
+                    .ConfigureAwait(false);
             }
         }
     }
@@ -918,13 +1218,23 @@ public sealed class MacroEngine
             if (wait <= 0)
                 break;
 
-            await Task.Delay(wait, token);
+            await _macroRunner.Timing.WaitAsync(wait, Math.Max(10, wait / 4), token).ConfigureAwait(false);
             elapsed += wait;
         } while (elapsed < maxWait);
 
         if (match.HasValue)
         {
             OnLog($"    → FOUND at ({match.Value.X}, {match.Value.Y}) after {elapsed}ms");
+            try
+            {
+                var det = VisionEngine.FindImageOnWindowDetailed(hwnd, imagePath, ifImage.SearchRegion);
+                if (det.HasValue)
+                    _lastImageMatchConfidence = det.Value.Confidence;
+            }
+            catch
+            {
+                _lastImageMatchConfidence = 0;
+            }
 
             if (ifImage.ClickOnFound)
             {
@@ -1170,7 +1480,7 @@ public sealed class MacroEngine
         while (DateTime.UtcNow < deadline)
         {
             token.ThrowIfCancellationRequested();
-            await Task.Delay(pollMs, token).ConfigureAwait(false);
+            await _macroRunner.Timing.WaitAsync(pollMs, Math.Max(15, pollMs / 4), token).ConfigureAwait(false);
 
             try
             {

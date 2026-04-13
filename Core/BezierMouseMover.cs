@@ -123,7 +123,12 @@ public sealed class BezierMouseMover : IBezierMouseMover
         ct.ThrowIfCancellationRequested();
         int j = Random.Shared.Next(-2, 3);
         Win32MouseInput.SendMouseButtonDown(button, j);
-        SpinWaitMs(Random.Shared.Next(12, 35));
+        bool anti = AppSettings.Load().AntiDetectionEnabled;
+        int pressMs = anti ? Random.Shared.Next(8, 16) : Random.Shared.Next(12, 35);
+        if (anti)
+            await Task.Delay(pressMs, ct).ConfigureAwait(false);
+        else
+            SpinWaitMs(pressMs);
         Win32MouseInput.SendMouseButtonUp(button, Random.Shared.Next(-2, 3));
     }
 
@@ -212,6 +217,10 @@ public sealed class BezierMouseMover : IBezierMouseMover
         double stepMs = durationMs / Math.Max(1, path.Count - 1);
         var clock = Stopwatch.StartNew();
         double nextDeadlineMs = 0;
+        bool antiTremor = AppSettings.Load().AntiDetectionEnabled;
+        int tremorEvery = Random.Shared.Next(3, 8);
+        int tremorCountdown = tremorEvery;
+        double speedPxSec = speedPxMs * 1000.0;
 
         for (int i = 0; i < path.Count; i++)
         {
@@ -219,6 +228,17 @@ public sealed class BezierMouseMover : IBezierMouseMover
             var p = path[i];
             int xi = (int)Math.Round(p.X);
             int yi = (int)Math.Round(p.Y);
+            if (antiTremor && i > 0 && i < path.Count - 1 && speedPxSec < 300)
+            {
+                tremorCountdown--;
+                if (tremorCountdown <= 0)
+                {
+                    xi += Random.Shared.Next(-3, 4);
+                    yi += Random.Shared.Next(-3, 4);
+                    tremorCountdown = Random.Shared.Next(3, 8);
+                }
+            }
+
             int tJitter = Random.Shared.Next(-2, 3);
             if (rawBypass && hwnd != IntPtr.Zero)
                 Win32MouseInput.SetCursorAndNotifyWindowMove(hwnd, xi, yi);

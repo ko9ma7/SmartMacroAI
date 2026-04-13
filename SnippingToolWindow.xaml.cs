@@ -16,6 +16,9 @@ public partial class SnippingToolWindow : Window
 
     public string? CapturedFilePath { get; private set; }
 
+    /// <summary>Screen-space rectangle of the last successful selection (valid when <see cref="DialogResult"/> is true).</summary>
+    public System.Drawing.Rectangle SelectedScreenRectangle { get; private set; }
+
     public static string TemplatesFolder
     {
         get
@@ -120,6 +123,7 @@ public partial class SnippingToolWindow : Window
             CapturedFilePath = Path.Combine(TemplatesFolder, fileName);
             cropped.Save(CapturedFilePath, ImageFormat.Png);
 
+            SelectedScreenRectangle = new System.Drawing.Rectangle(x, y, w, h);
             DialogResult = true;
         }
         catch

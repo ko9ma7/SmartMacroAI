@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -29,11 +30,51 @@ public sealed class AppSettings
     /// <summary>When false, no random 8–25 ms micro-pause is inserted along the path.</summary>
     public bool MouseMicroPauseEnabled { get; set; } = true;
 
+    /// <summary>Windows.Media.Ocr language: <c>auto</c>, <c>vi-VN</c>, or <c>en-US</c>.</summary>
+    public string OcrLanguageTag { get; set; } = "auto";
+
     /// <summary>Use <c>SetCursorPos</c> plus <c>WM_MOUSEMOVE</c> to the bound target window instead of absolute SendInput moves.</summary>
     public bool MouseRawInputBypass { get; set; }
 
     /// <summary>Prefer interception-style driver when <c>interception.dll</c> is present (falls back to SendInput).</summary>
     public bool MouseHardwareSimulationDriver { get; set; }
+
+    // ── Anti-Detection (v1.1.0) ──
+
+    public bool AntiDetectionEnabled { get; set; } = true;
+
+    public bool AntiDetectionFatigueEnabled { get; set; } = true;
+
+    public bool AntiDetectionMicroPauseBehavior { get; set; } = true;
+
+    /// <summary>0–15 (%): misclick-away simulation in hardware mode.</summary>
+    public int AntiDetectionMisclickPercent { get; set; } = 5;
+
+    public bool AntiDetectionHideFromCapture { get; set; } = true;
+
+    public List<string> AntiDetectionDecoyTitles { get; set; } =
+    [
+        "Notepad",
+        "Calculator",
+        "Windows Security",
+        "Settings",
+        "File Explorer",
+    ];
+
+    public int AntiDetectionSessionMinutes { get; set; } = 45;
+
+    public int AntiDetectionSessionBreakMinMinutes { get; set; } = 3;
+
+    public int AntiDetectionSessionBreakMaxMinutes { get; set; } = 10;
+
+    public bool AntiDetectionSessionBreakEnabled { get; set; } = true;
+
+    public bool AntiDetectionCpuIdleTweak { get; set; } = true;
+
+    /// <summary>When true and hardware mode, type via scan-code <c>SendInput</c> instead of <c>WM_CHAR</c>.</summary>
+    public bool AntiDetectionUseScanCodeTyping { get; set; } = true;
+
+    public bool AntiDetectionHookScanOnStartup { get; set; } = true;
 
     private static readonly string PathFile = Path.Combine(
         AppDomain.CurrentDomain.BaseDirectory, "app_settings.json");
@@ -45,7 +86,20 @@ public sealed class AppSettings
             if (File.Exists(PathFile))
             {
                 string json = File.ReadAllText(PathFile);
-                return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                var s = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                if (s.AntiDetectionDecoyTitles is null || s.AntiDetectionDecoyTitles.Count == 0)
+                {
+                    s.AntiDetectionDecoyTitles =
+                    [
+                        "Notepad",
+                        "Calculator",
+                        "Windows Security",
+                        "Settings",
+                        "File Explorer",
+                    ];
+                }
+
+                return s;
             }
         }
         catch { }

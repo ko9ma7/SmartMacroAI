@@ -18,6 +18,9 @@ namespace SmartMacroAI.Models;
 [JsonDerivedType(typeof(TypeAction), "Type")]
 [JsonDerivedType(typeof(IfImageAction), "IfImage")]
 [JsonDerivedType(typeof(IfTextAction), "IfText")]
+[JsonDerivedType(typeof(OcrRegionAction), "OcrRegion")]
+[JsonDerivedType(typeof(ClearVariableAction), "ClearVar")]
+[JsonDerivedType(typeof(LogVariableAction), "LogVar")]
 [JsonDerivedType(typeof(WebNavigateAction), "WebNavigate")]
 [JsonDerivedType(typeof(WebClickAction), "WebClick")]
 [JsonDerivedType(typeof(WebTypeAction), "WebType")]
@@ -76,6 +79,16 @@ public class WaitAction : MacroAction
     /// <summary>Legacy inclusive maximum (ms).</summary>
     public int DelayMax { get; set; } = 1000;
 
+    /// <summary>When set with a valid ROI, polls Windows OCR until the text contains this substring.</summary>
+    public string WaitForOcrContains { get; set; } = string.Empty;
+
+    public int OcrRegionX { get; set; }
+    public int OcrRegionY { get; set; }
+    public int OcrRegionWidth { get; set; }
+    public int OcrRegionHeight { get; set; }
+
+    public int OcrPollIntervalMs { get; set; } = 500;
+
     public WaitAction()
     {
         DisplayName = "Chờ";
@@ -111,6 +124,9 @@ public class SetVariableAction : MacroAction
 
     /// <summary>Literal or placeholders <c>{otherVar}</c> (expanded at runtime).</summary>
     public string Value { get; set; } = "0";
+
+    /// <summary><c>Manual</c> uses <see cref="Value"/>; <c>Clipboard</c> reads clipboard text at runtime.</summary>
+    public string ValueSource { get; set; } = "Manual";
 
     /// <summary><c>Set</c>, <c>Increment</c>, or <c>Decrement</c>.</summary>
     public string Operation { get; set; } = "Set";
@@ -270,6 +286,48 @@ public class IfTextAction : MacroAction
     public IfTextAction()
     {
         DisplayName = "IF Text Found";
+    }
+}
+
+/// <summary>
+/// Reads text from a screen rectangle via Windows.Media.Ocr and stores it in a variable (<c>{{name}}</c>).
+/// </summary>
+public class OcrRegionAction : MacroAction
+{
+    public int ScreenX { get; set; }
+    public int ScreenY { get; set; }
+    public int ScreenWidth { get; set; } = 200;
+    public int ScreenHeight { get; set; } = 80;
+
+    /// <summary>Variable name without braces (e.g. <c>ocr_result</c> → <c>{{ocr_result}}</c>).</summary>
+    public string OutputVariableName { get; set; } = "ocr_result";
+
+    public OcrRegionAction()
+    {
+        DisplayName = "Đọc văn bản (OCR)";
+    }
+}
+
+/// <summary>Clears one variable from the runtime string store, or all when <see cref="VarName"/> is empty.</summary>
+public class ClearVariableAction : MacroAction
+{
+    /// <summary>Empty = clear all user variables in the runtime <c>VariableStore</c>.</summary>
+    public string VarName { get; set; } = string.Empty;
+
+    public ClearVariableAction()
+    {
+        DisplayName = "Xóa biến";
+    }
+}
+
+/// <summary>Writes <c>name = value</c> to the execution log.</summary>
+public class LogVariableAction : MacroAction
+{
+    public string VarName { get; set; } = "myVar";
+
+    public LogVariableAction()
+    {
+        DisplayName = "In biến vào log";
     }
 }
 

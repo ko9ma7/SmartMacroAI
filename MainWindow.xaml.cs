@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using SmartMacroAI.Core;
 using SmartMacroAI.Localization;
@@ -46,6 +47,12 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<DashboardRowVm> _dashboardRows = [];
 
+    private readonly ObservableCollection<VariableLiveRowVm> _dashboardVariableRows = [];
+
+    private DispatcherTimer? _dashboardVariablesTimer;
+
+    private bool _suppressWinRtOcrCombo;
+
     // ── Hotkey & Tray ──
     private const int HOTKEY_TOGGLE_APP    = 1;
     private const int HOTKEY_TOGGLE_TARGET = 2;
@@ -67,7 +74,7 @@ public partial class MainWindow : Window
 
     // ── Update Checker ──
     /// <summary>Fallback display / parse if assembly version is unavailable.</summary>
-    private const string CurrentVersion   = "v1.2.0";
+    private const string CurrentVersion   = "v1.2.1";
     private const string GitHubApiUrl     = "https://api.github.com/repos/TroniePh/SmartMacroAI/releases/latest";
     private const string LandingPageUrl   = "https://tronieph.github.io/SmartMacroAI-Website/";
     /// <summary>GitHub rejects API calls without a descriptive User-Agent.</summary>
@@ -102,6 +109,14 @@ public partial class MainWindow : Window
         _hwndSource?.AddHook(WndProc);
         RegisterHotkeys();
         InitSettingsUi();
+        StartAntiDetectionServices();
+        DashboardVariablesGrid.ItemsSource = _dashboardVariableRows;
+        _dashboardVariablesTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(600),
+        };
+        _dashboardVariablesTimer.Tick += (_, _) => RefreshDashboardVariablesPanel();
+        _dashboardVariablesTimer.Start();
         _ = CheckForUpdatesAsync(silent: true);
     }
 
@@ -479,6 +494,8 @@ public partial class MainWindow : Window
                 TxtStatus.Text = LanguageManager.GetString("ui_Header_Running");
             else
                 TxtStatus.Text = LanguageManager.GetString("ui_Header_Ready");
+            InitWinRtOcrLanguageCombo();
+            LoadAntiDetectionFromSettings();
         });
     }
 
@@ -538,6 +555,209 @@ public partial class MainWindow : Window
         InitLanguageCombo();
         LoadVisionScaleSlidersFromSettings();
         InitMouseSettingsUi();
+        InitWinRtOcrLanguageCombo();
+        LoadAntiDetectionFromSettings();
+    }
+
+    private void InitWinRtOcrLanguageCombo()
+    {
+        if (CmbWinRtOcrLanguage is null)
+            return;
+
+        _suppressWinRtOcrCombo = true;
+        CmbWinRtOcrLanguage.Items.Clear();
+        CmbWinRtOcrLanguage.Items.Add(new ComboBoxItem
+        {
+            Tag = "auto",
+            Content = LanguageManager.GetString("ui_OcrLang_Auto"),
+        });
+        CmbWinRtOcrLanguage.Items.Add(new ComboBoxItem
+        {
+            Tag = "vi-VN",
+            Content = LanguageManager.GetString("ui_OcrLang_Vi"),
+        });
+        CmbWinRtOcrLanguage.Items.Add(new ComboBoxItem
+        {
+            Tag = "en-US",
+            Content = LanguageManager.GetString("ui_OcrLang_En"),
+        });
+
+        string tag = AppSettings.Load().OcrLanguageTag?.Trim() ?? "auto";
+        if (!tag.Equals("vi-VN", StringComparison.OrdinalIgnoreCase)
+            && !tag.Equals("en-US", StringComparison.OrdinalIgnoreCase))
+            tag = "auto";
+
+        foreach (object? item in CmbWinRtOcrLanguage.Items)
+        {
+            if (item is ComboBoxItem ci && ci.Tag is string t
+                && t.Equals(tag, StringComparison.OrdinalIgnoreCase))
+            {
+                CmbWinRtOcrLanguage.SelectedItem = ci;
+                break;
+            }
+        }
+
+        if (CmbWinRtOcrLanguage.SelectedItem is null && CmbWinRtOcrLanguage.Items.Count > 0)
+            CmbWinRtOcrLanguage.SelectedIndex = 0;
+
+        _suppressWinRtOcrCombo = false;
+    }
+
+    private void CmbWinRtOcrLanguage_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _suppressWinRtOcrCombo)
+            return;
+        if (CmbWinRtOcrLanguage?.SelectedItem is not ComboBoxItem { Tag: string t })
+            return;
+
+        var app = AppSettings.Load();
+        app.OcrLanguageTag = t;
+        app.Save();
+    }
+
+    private void RefreshDashboardVariablesPanel()
+    {
+        if (_activeView != "Dashboard")
+            return;
+
+        DashboardRowVm? row = _dashboardRows.FirstOrDefault(r => r.IsRunning);
+        if (row?.Engine is null)
+        {
+            _dashboardVariableRows.Clear();
+            return;
+        }
+
+        IReadOnlyList<(string Name, string Value, string Source)> live = row.Engine.GetLiveVariableRows();
+        _dashboardVariableRows.Clear();
+        foreach ((string name, string value, string source) in live)
+        {
+            _dashboardVariableRows.Add(new VariableLiveRowVm
+            {
+                Name = name,
+                Value = value,
+                Source = source,
+            });
+        }
+    }
+
+    private void BtnDashboardAddVariable_Click(object sender, RoutedEventArgs e)
+    {
+        if (DashboardGrid.SelectedItem is not DashboardRowVm row)
+        {
+            ShowToast(LanguageManager.GetString("ui_Dashboard_AddVar_SelectRow"), isError: true);
+            return;
+        }
+
+        string? varName = PromptSimpleString(
+            LanguageManager.GetString("ui_Dashboard_AddVar_NameTitle"),
+            LanguageManager.GetString("ui_Dashboard_AddVar_NamePrompt"),
+            "myVar");
+        if (string.IsNullOrWhiteSpace(varName))
+            return;
+
+        varName = varName.Trim();
+        string? varValue = PromptSimpleString(
+            LanguageManager.GetString("ui_Dashboard_AddVar_ValueTitle"),
+            LanguageManager.GetString("ui_Dashboard_AddVar_ValuePrompt"),
+            "");
+
+        if (varValue is null)
+            return;
+
+        if (row.IsRunning && row.Engine is not null)
+        {
+            row.Engine.RuntimeStringVariables.Set(varName, varValue, "Manual");
+            AppendLog("[Biến] Đã đặt {{" + varName + "}} = \"" + Truncate(varValue, 40) + "\" (runtime).");
+            RefreshDashboardVariablesPanel();
+            return;
+        }
+
+        row.Script.Actions.Add(new SetVariableAction
+        {
+            VarName = varName,
+            Value = varValue,
+            Operation = "Set",
+            ValueSource = "Manual",
+        });
+        row.NotifyScriptMetadataChanged();
+        if (!string.IsNullOrWhiteSpace(row.FilePath))
+        {
+            try
+            {
+                ScriptManager.Save(row.Script, row.FilePath);
+                ShowToast(LanguageManager.GetString("ui_Dashboard_AddVar_SavedStep"), isError: false);
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"{LanguageManager.GetString("ui_Dashboard_AddVar_SaveFailed")}: {ex.Message}", isError: true);
+            }
+        }
+        else
+            ShowToast(LanguageManager.GetString("ui_Dashboard_AddVar_UnsavedFile"), isError: false);
+    }
+
+    /// <summary>Small modal prompt; returns null if cancelled.</summary>
+    private string? PromptSimpleString(string title, string label, string initial)
+    {
+        var dlg = new Window
+        {
+            Title = title,
+            Width = 400,
+            Height = 170,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            Background = TryFindResource("BaseBrush") as Brush ?? Brushes.WhiteSmoke,
+        };
+
+        var tb = new TextBox
+        {
+            Text = initial,
+            Margin = new Thickness(16, 8, 16, 0),
+            Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.Black,
+            Background = TryFindResource("Surface0Brush") as Brush ?? Brushes.White,
+            BorderBrush = TryFindResource("Surface1Brush") as Brush ?? Brushes.Gray,
+            CaretBrush = TryFindResource("TextBrush") as Brush ?? Brushes.Black,
+            Padding = new Thickness(6, 4, 6, 4),
+        };
+
+        string? result = null;
+        var sp = new StackPanel();
+        sp.Children.Add(new TextBlock
+        {
+            Text = label,
+            Margin = new Thickness(16, 16, 16, 0),
+            Foreground = TryFindResource("TextBrush") as Brush ?? Brushes.Black,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        sp.Children.Add(tb);
+
+        var btnOk = new Button
+        {
+            Content = LanguageManager.GetString("ui_Ok"),
+            Margin = new Thickness(0, 16, 8, 0),
+            Padding = new Thickness(16, 6, 16, 6),
+            IsDefault = true,
+        };
+        btnOk.Click += (_, _) => { result = tb.Text; dlg.DialogResult = true; };
+
+        var btnCancel = new Button
+        {
+            Content = LanguageManager.GetString("ui_Cancel"),
+            Margin = new Thickness(8, 16, 0, 0),
+            Padding = new Thickness(16, 6, 16, 6),
+            IsCancel = true,
+        };
+        var hp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(16) };
+        hp.Children.Add(btnOk);
+        hp.Children.Add(btnCancel);
+        sp.Children.Add(hp);
+        dlg.Content = sp;
+        tb.Focus();
+        tb.SelectAll();
+
+        bool? ok = dlg.ShowDialog();
+        return ok == true ? result : null;
     }
 
     private void InitMouseSettingsUi()
@@ -678,6 +898,108 @@ public partial class MainWindow : Window
         s.Save();
         LoadVisionScaleSlidersFromSettings();
         ShowToast(LanguageManager.GetString("ui_Toast_VisionScalesSaved"), isError: false);
+    }
+
+    private void StartAntiDetectionServices()
+    {
+        try
+        {
+            ProcessStealthService.Instance.AttachWindow(this);
+            var app = AppSettings.Load();
+            ProcessStealthService.Instance.StartTitleRandomizerIfEnabled(app);
+            ApplyCaptureAffinityFromSettings();
+            ProcessStealthService.ScanForeignModulesOnStartupIfEnabled(msg =>
+                Dispatcher.BeginInvoke(() =>
+                    MessageBox.Show(this, msg, "SmartMacroAI", MessageBoxButton.OK, MessageBoxImage.Warning)));
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[Anti-Detection] Startup: {ex.Message}");
+        }
+    }
+
+    private void ApplyCaptureAffinityFromSettings()
+    {
+        try
+        {
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+                return;
+            var s = AppSettings.Load();
+            ProcessStealthService.ApplyExcludeFromCapture(hwnd, s.AntiDetectionEnabled && s.AntiDetectionHideFromCapture);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[Anti-Detection] Capture affinity: {ex.Message}");
+        }
+    }
+
+    private void LoadAntiDetectionFromSettings()
+    {
+        if (ChkAntiEnabled is null)
+            return;
+        var s = AppSettings.Load();
+        ChkAntiEnabled.IsChecked = s.AntiDetectionEnabled;
+        ChkAntiFatigue.IsChecked = s.AntiDetectionFatigueEnabled;
+        ChkAntiMicroPause.IsChecked = s.AntiDetectionMicroPauseBehavior;
+        ChkAntiSessionBreak.IsChecked = s.AntiDetectionSessionBreakEnabled;
+        ChkAntiCpuTweak.IsChecked = s.AntiDetectionCpuIdleTweak;
+        ChkAntiHookScan.IsChecked = s.AntiDetectionHookScanOnStartup;
+        ChkAntiScanTyping.IsChecked = s.AntiDetectionUseScanCodeTyping;
+        ChkAntiCapture.IsChecked = s.AntiDetectionHideFromCapture;
+        SldAntiMisclick.Value = Math.Clamp(s.AntiDetectionMisclickPercent, 0, 15);
+        TxtAntiMisclickValue.Text = $"{(int)Math.Round(SldAntiMisclick.Value)}%";
+        TxtAntiSessionMin.Text = s.AntiDetectionSessionMinutes.ToString();
+        TxtAntiBreakMin.Text = s.AntiDetectionSessionBreakMinMinutes.ToString();
+        TxtAntiBreakMax.Text = s.AntiDetectionSessionBreakMaxMinutes.ToString();
+        TxtAntiDecoyTitles.Text = string.Join(Environment.NewLine, s.AntiDetectionDecoyTitles);
+    }
+
+    private void SldAntiMisclick_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded || TxtAntiMisclickValue is null)
+            return;
+        TxtAntiMisclickValue.Text = $"{(int)Math.Round(SldAntiMisclick.Value)}%";
+    }
+
+    private void BtnSaveAntiDetection_Click(object sender, RoutedEventArgs e)
+    {
+        var s = AppSettings.Load();
+        s.AntiDetectionEnabled = ChkAntiEnabled.IsChecked == true;
+        s.AntiDetectionFatigueEnabled = ChkAntiFatigue.IsChecked == true;
+        s.AntiDetectionMicroPauseBehavior = ChkAntiMicroPause.IsChecked == true;
+        s.AntiDetectionSessionBreakEnabled = ChkAntiSessionBreak.IsChecked == true;
+        s.AntiDetectionCpuIdleTweak = ChkAntiCpuTweak.IsChecked == true;
+        s.AntiDetectionHookScanOnStartup = ChkAntiHookScan.IsChecked == true;
+        s.AntiDetectionUseScanCodeTyping = ChkAntiScanTyping.IsChecked == true;
+        s.AntiDetectionHideFromCapture = ChkAntiCapture.IsChecked == true;
+        s.AntiDetectionMisclickPercent = (int)Math.Round(SldAntiMisclick.Value);
+
+        if (int.TryParse(TxtAntiSessionMin.Text.Trim(), out int sess) && sess > 0)
+            s.AntiDetectionSessionMinutes = sess;
+        int bmin = s.AntiDetectionSessionBreakMinMinutes;
+        if (int.TryParse(TxtAntiBreakMin.Text.Trim(), out int bminP) && bminP > 0)
+            bmin = bminP;
+        int bmax = s.AntiDetectionSessionBreakMaxMinutes;
+        if (int.TryParse(TxtAntiBreakMax.Text.Trim(), out int bmaxP) && bmaxP > 0)
+            bmax = bmaxP;
+        s.AntiDetectionSessionBreakMinMinutes = bmin;
+        s.AntiDetectionSessionBreakMaxMinutes = Math.Max(bmin, bmax);
+
+        var lines = TxtAntiDecoyTitles.Text
+            .Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None)
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .ToList();
+        if (lines.Count > 0)
+            s.AntiDetectionDecoyTitles = lines;
+
+        s.Save();
+        Win32MouseInput.UseAntiDetectionMouseStyle = s.AntiDetectionEnabled;
+        ProcessStealthService.Instance.StopTitleRandomizer();
+        ProcessStealthService.Instance.StartTitleRandomizerIfEnabled(s);
+        ApplyCaptureAffinityFromSettings();
+        ShowToast(LanguageManager.GetString("ui_Toast_AntiSaved"), isError: false);
     }
 
     private void InitLanguageCombo()
@@ -1054,6 +1376,9 @@ public partial class MainWindow : Window
         "WebNavigate" => new WebNavigateAction(),
         "WebClick" => new WebClickAction(),
         "WebType" => new WebTypeAction(),
+        "OcrRegion" => new OcrRegionAction(),
+        "ClearVar" => new ClearVariableAction(),
+        "LogVar" => new LogVariableAction(),
         _ => null,
     };
 
@@ -1695,6 +2020,9 @@ public partial class MainWindow : Window
             WebNavigateAction wn => ("Web: Navigate", "#94E2D5", Truncate(wn.Url, 40)),
             WebClickAction wc => ("Web: Click", "#94E2D5", Truncate(wc.CssSelector, 35)),
             WebTypeAction wt => ("Web: Type", "#94E2D5", $"{Truncate(wt.CssSelector, 20)} ← \"{Truncate(wt.TextToType, 15)}\""),
+            OcrRegionAction ocr => ("📋 " + ocr.DisplayName, "#74C7EC", $"ROI {ocr.ScreenX},{ocr.ScreenY} {ocr.ScreenWidth}x{ocr.ScreenHeight} → {{" + ocr.OutputVariableName + "}}"),
+            ClearVariableAction cv => ("🗑 " + cv.DisplayName, "#F5C2E7", string.IsNullOrWhiteSpace(cv.VarName) ? "Xóa tất cả" : "Xóa {{" + cv.VarName + "}}"),
+            LogVariableAction lv => ("📋 " + lv.DisplayName, "#A6E3A1", "Log {{" + lv.VarName + "}}"),
             _ => (action.DisplayName, "#CDD6F4", ""),
         };
 
@@ -2592,6 +2920,8 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
+        _dashboardVariablesTimer?.Stop();
+        ProcessStealthService.Instance.StopTitleRandomizer();
         LanguageManager.UiLanguageChanged -= OnUiLanguageChanged;
         UnregisterHotkeys();
         ShowAllHiddenWindows();
@@ -2611,6 +2941,15 @@ public partial class MainWindow : Window
     {
         if (!string.IsNullOrWhiteSpace(w.WaitForImage))
             return $"Chờ ảnh hiện ≤{w.WaitTimeoutMs}ms: {Path.GetFileName(w.WaitForImage)}";
+        if (!string.IsNullOrWhiteSpace(w.WaitForOcrContains)
+            && w.OcrRegionWidth > 0
+            && w.OcrRegionHeight > 0)
+        {
+            return $"Chờ OCR chứa \"{Truncate(w.WaitForOcrContains, 22)}\" " +
+                   $"(màn hình {w.OcrRegionX},{w.OcrRegionY} {w.OcrRegionWidth}x{w.OcrRegionHeight}, " +
+                   $"mỗi {w.OcrPollIntervalMs}ms, ≤{w.WaitTimeoutMs}ms)";
+        }
+
         if (w.DelayMin != w.DelayMax)
             return $"{w.DelayMin}-{w.DelayMax}ms (random)";
         return $"{w.Milliseconds}ms";

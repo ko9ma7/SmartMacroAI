@@ -324,6 +324,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <!-- Stats Row -->
@@ -573,6 +574,35 @@
                                 </Grid>
                             </DockPanel>
                         </Border>
+                        <Border Grid.Row="2" Style="{StaticResource CardStyle}" Margin="0,8,0,0" Padding="0" MaxHeight="220">
+                            <DockPanel>
+                                <DockPanel DockPanel.Dock="Top" Margin="12,10,12,6" LastChildFill="True">
+                                    <Button DockPanel.Dock="Right"
+                                            Content="{DynamicResource ui_Dashboard_AddVariable}"
+                                            Click="BtnDashboardAddVariable_Click"
+                                            ToolTip="{DynamicResource ui_Tooltip_DashboardAddVariable}"
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Padding="10,5" FontSize="11" />
+                                    <TextBlock Text="{DynamicResource ui_Dashboard_VariablesTitle}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
+                                </DockPanel>
+                                <DataGrid x:Name="DashboardVariablesGrid"
+                                          AutoGenerateColumns="False"
+                                          HeadersVisibility="Column"
+                                          IsReadOnly="True"
+                                          CanUserAddRows="False"
+                                          RowHeight="32"
+                                          MaxHeight="160"
+                                          Background="{StaticResource BaseBrush}"
+                                          Foreground="{StaticResource TextBrush}"
+                                          BorderThickness="0">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="{DynamicResource ui_Dashboard_VarName}" Binding="{Binding Name}" Width="*" />
+                                        <DataGridTextColumn Header="{DynamicResource ui_Dashboard_VarValue}" Binding="{Binding Value}" Width="2*" />
+                                        <DataGridTextColumn Header="{DynamicResource ui_Dashboard_VarSource}" Binding="{Binding Source}" Width="100" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+                        </Border>
                     </Grid>
 
                     <!-- ────── Macro Editor View ────── -->
@@ -666,6 +696,9 @@
                                             <Border Background="#301818" CornerRadius="0" Padding="8,4" Margin="0,1" BorderBrush="#FE640B" BorderThickness="1" Cursor="Hand" MouseLeftButtonDown="ActionBlock_MouseDown"><StackPanel Orientation="Horizontal" Tag="TryCatch"><TextBlock Text="&#x1F6E1;" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center" /><TextBlock Text="Bẫy lỗi (Try/Catch)" Foreground="#CDD6F4" FontSize="12" /></StackPanel></Border>
                                             <Border Background="{StaticResource BaseBrush}" CornerRadius="0" Padding="8,4" Margin="0,1" Cursor="Hand" MouseLeftButtonDown="ActionBlock_MouseDown"><StackPanel Orientation="Horizontal" Tag="IfImageFound"><Ellipse Width="8" Height="8" Fill="{StaticResource AccentPeachBrush}" Margin="0,0,10,0" /><TextBlock Text="{DynamicResource ui_Action_IfImage}" Foreground="#CDD6F4" FontSize="12" /></StackPanel></Border>
                                             <Border Background="{StaticResource BaseBrush}" CornerRadius="0" Padding="8,4" Margin="0,1" Cursor="Hand" MouseLeftButtonDown="ActionBlock_MouseDown"><StackPanel Orientation="Horizontal" Tag="IfTextFound"><Ellipse Width="8" Height="8" Fill="{StaticResource AccentLavenderBrush}" Margin="0,0,10,0" /><TextBlock Text="{DynamicResource ui_Action_IfText}" Foreground="#CDD6F4" FontSize="12" /></StackPanel></Border>
+                                            <Border Background="#1E2A38" CornerRadius="0" Padding="8,4" Margin="0,1" BorderBrush="#74C7EC" BorderThickness="1" Cursor="Hand" MouseLeftButtonDown="ActionBlock_MouseDown"><StackPanel Orientation="Horizontal" Tag="OcrRegion"><TextBlock Text="&#x1F4D0;" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center" /><TextBlock Text="{DynamicResource ui_Action_OcrRegion}" Foreground="#CDD6F4" FontSize="12" /></StackPanel></Border>
+                                            <Border Background="#2A2028" CornerRadius="0" Padding="8,4" Margin="0,1" BorderBrush="#F5C2E7" BorderThickness="1" Cursor="Hand" MouseLeftButtonDown="ActionBlock_MouseDown"><StackPanel Orientation="Horizontal" Tag="ClearVar"><TextBlock Text="&#x1F5D1;" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center" /><TextBlock Text="{DynamicResource ui_Action_ClearVar}" Foreground="#CDD6F4" FontSize="12" /></StackPanel></Border>
+                                            <Border Background="#1A2830" CornerRadius="0" Padding="8,4" Margin="0,1" BorderBrush="#A6E3A1" BorderThickness="1" Cursor="Hand" MouseLeftButtonDown="ActionBlock_MouseDown"><StackPanel Orientation="Horizontal" Tag="LogVar"><TextBlock Text="&#x1F4CB;" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center" /><TextBlock Text="{DynamicResource ui_Action_LogVar}" Foreground="#CDD6F4" FontSize="12" /></StackPanel></Border>
                                             <Border Background="#1A3D3A" CornerRadius="0" Padding="8,4" Margin="0,4,0,1" BorderBrush="#94E2D5" BorderThickness="1" Cursor="Hand" MouseLeftButtonDown="ActionBlock_MouseDown"><StackPanel Orientation="Horizontal" Tag="WebAction"><TextBlock Text="&#x1F310;" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center" /><TextBlock Text="{DynamicResource ui_Action_WebAction}" Foreground="#CDD6F4" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" /></StackPanel></Border>
                                         </StackPanel>
                                     </ScrollViewer>
@@ -778,6 +811,11 @@
                                                      FontSize="12"
                                                      DropDownOpened="CmbOcrWindowTitle_DropDownOpened" />
                                         </DockPanel>
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,16,8">
+                                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{DynamicResource ui_Ocr_WinRtLanguage}" />
+                                        <ComboBox x:Name="CmbWinRtOcrLanguage" Width="200" Style="{StaticResource DarkComboBoxStyle}" FontSize="12"
+                                                  SelectionChanged="CmbWinRtOcrLanguage_SelectionChanged" />
                                     </StackPanel>
                                     <StackPanel VerticalAlignment="Bottom" Margin="0,0,0,8">
                                         <Button Style="{StaticResource PrimaryButtonStyle}" Content="{DynamicResource ui_ExtractText}" Click="BtnTestOcr_Click" Padding="16,8" />
@@ -1039,6 +1077,44 @@
                                                         <Polyline x:Name="MousePreviewPolyline" Stroke="#89B4FA" StrokeThickness="2" />
                                                     </Canvas>
                                                 </Border>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+                            <TabItem Header="{DynamicResource ui_Settings_Tab_AntiDetection}">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel MaxWidth="620" Margin="0,8,0,0">
+                                        <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
+                                            <StackPanel>
+                                                <TextBlock Text="{DynamicResource ui_Anti_Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,4" />
+                                                <TextBlock Text="{DynamicResource ui_Anti_Blurb}" FontSize="12" Foreground="{StaticResource SubtextBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                                <CheckBox x:Name="ChkAntiEnabled" Content="{DynamicResource ui_Anti_Enable}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
+                                                <CheckBox x:Name="ChkAntiFatigue" Content="{DynamicResource ui_Anti_Fatigue}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
+                                                <CheckBox x:Name="ChkAntiMicroPause" Content="{DynamicResource ui_Anti_MicroPause}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
+                                                <CheckBox x:Name="ChkAntiSessionBreak" Content="{DynamicResource ui_Anti_SessionBreak}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
+                                                <CheckBox x:Name="ChkAntiCpuTweak" Content="{DynamicResource ui_Anti_CpuTweak}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
+                                                <CheckBox x:Name="ChkAntiHookScan" Content="{DynamicResource ui_Anti_HookScan}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
+                                                <CheckBox x:Name="ChkAntiScanTyping" Content="{DynamicResource ui_Anti_ScanTyping}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
+                                                <CheckBox x:Name="ChkAntiCapture" Content="{DynamicResource ui_Anti_Capture}" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12" />
+                                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{DynamicResource ui_Anti_Misclick}" />
+                                                <DockPanel Margin="0,6,0,12">
+                                                    <TextBlock x:Name="TxtAntiMisclickValue" DockPanel.Dock="Right" MinWidth="32" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource TextBrush}" />
+                                                    <Slider x:Name="SldAntiMisclick" Minimum="0" Maximum="15" TickFrequency="1" IsSnapToTickEnabled="True"
+                                                            ValueChanged="SldAntiMisclick_ValueChanged" />
+                                                </DockPanel>
+                                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{DynamicResource ui_Anti_SessionMin}" />
+                                                <TextBox x:Name="TxtAntiSessionMin" Style="{StaticResource DarkTextBoxStyle}" Width="120" HorizontalAlignment="Left" Margin="0,6,0,12" />
+                                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{DynamicResource ui_Anti_BreakRange}" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,12">
+                                                    <TextBox x:Name="TxtAntiBreakMin" Style="{StaticResource DarkTextBoxStyle}" Width="56" Margin="0,0,8,0" />
+                                                    <TextBlock Text="–" VerticalAlignment="Center" Foreground="{StaticResource SubtextBrush}" Margin="0,0,8,0" />
+                                                    <TextBox x:Name="TxtAntiBreakMax" Style="{StaticResource DarkTextBoxStyle}" Width="56" />
+                                                </StackPanel>
+                                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{DynamicResource ui_Anti_DecoyTitles}" />
+                                                <TextBox x:Name="TxtAntiDecoyTitles" Style="{StaticResource DarkTextBoxStyle}" AcceptsReturn="True" TextWrapping="Wrap" Height="100" VerticalScrollBarVisibility="Auto" Margin="0,6,0,16" />
+                                                <Button x:Name="BtnSaveAntiDetection" Style="{StaticResource PrimaryButtonStyle}" Content="{DynamicResource ui_Anti_Save}"
+                                                        Click="BtnSaveAntiDetection_Click" Padding="20,10" HorizontalAlignment="Left" />
                                             </StackPanel>
                                         </Border>
                                     </StackPanel>

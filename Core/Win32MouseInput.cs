@@ -5,11 +5,11 @@ namespace SmartMacroAI.Core;
 
 /// <summary>
 /// Low-level absolute mouse moves and clicks via single-item <c>SendInput</c> calls
-/// (one <see cref="INPUT"/> per step — no batched injection).
+/// (one <see cref="NativeMethods.INPUT"/> per step — no batched injection).
 /// </summary>
 public static class Win32MouseInput
 {
-    public const uint INPUT_MOUSE = 0;
+    public const uint INPUT_MOUSE = NativeMethods.INPUT_MOUSE;
 
     public const uint MOUSEEVENTF_MOVE = 0x0001;
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -21,6 +21,9 @@ public static class Win32MouseInput
     public const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
     public const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
 
+    /// <summary>When true, mouse <c>SendInput</c> uses <see cref="NativeMethods.GetMessageExtraInfo"/> for <c>dwExtraInfo</c>.</summary>
+    public static bool UseAntiDetectionMouseStyle { get; set; }
+
     private const int SM_XVIRTUALSCREEN = 76;
     private const int SM_YVIRTUALSCREEN = 77;
     private const int SM_CXVIRTUALSCREEN = 78;
@@ -28,9 +31,6 @@ public static class Win32MouseInput
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -47,25 +47,10 @@ public static class Win32MouseInput
         public int Y;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MOUSEINPUT
-    {
-        public int dx;
-        public int dy;
-        public uint mouseData;
-        public uint dwFlags;
-        public uint time;
-        public UIntPtr dwExtraInfo;
-    }
+    private static IntPtr MouseExtra() =>
+        UseAntiDetectionMouseStyle ? NativeMethods.GetMessageExtraInfo() : IntPtr.Zero;
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct INPUT
-    {
-        public uint type;
-        public MOUSEINPUT mi;
-    }
-
-    private static readonly int InputSize = Marshal.SizeOf<INPUT>();
+    private static readonly int InputSize = NativeMethods.SizeOfInput();
 
     /// <summary>Converts screen pixels to normalized absolute coordinates for <c>SendInput</c> (virtual desktop).</summary>
     public static void ScreenToAbsoluteNormalized(int screenX, int screenY, out int absX, out int absY)
@@ -83,22 +68,21 @@ public static class Win32MouseInput
     }
 
     /// <summary>Sends exactly one absolute move via <c>SendInput</c>.</summary>
-    /// <param name="timeJitterMs">Small offset added to <see cref="MOUSEINPUT.time"/> (0 lets the system stamp).</param>
     public static void SendMouseMoveAbsolute(int screenX, int screenY, int timeJitterMs = 0)
     {
         ScreenToAbsoluteNormalized(screenX, screenY, out int ax, out int ay);
         uint t = timeJitterMs == 0 ? 0 : (uint)Math.Clamp(Environment.TickCount + timeJitterMs, 0, int.MaxValue);
-        var mi = new MOUSEINPUT
+        var mi = new NativeMethods.MOUSEINPUT
         {
             dx = ax,
             dy = ay,
             mouseData = 0,
             dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
             time = t,
-            dwExtraInfo = UIntPtr.Zero,
+            dwExtraInfo = MouseExtra(),
         };
-        var inp = new INPUT { type = INPUT_MOUSE, mi = mi };
-        SendInput(1, [inp], InputSize);
+        var inp = new NativeMethods.INPUT { type = INPUT_MOUSE, U = new NativeMethods.InputUnion { mi = mi } };
+        NativeMethods.SendInput(1, [inp], InputSize);
     }
 
     public static void SendMouseButtonDown(MouseButton button, int timeJitterMs = 0)
@@ -111,17 +95,17 @@ public static class Win32MouseInput
             _ => MOUSEEVENTF_LEFTDOWN,
         };
         uint t = timeJitterMs == 0 ? 0 : (uint)Math.Clamp(Environment.TickCount + timeJitterMs, 0, int.MaxValue);
-        var mi = new MOUSEINPUT
+        var mi = new NativeMethods.MOUSEINPUT
         {
             dx = 0,
             dy = 0,
             mouseData = 0,
             dwFlags = flags,
             time = t,
-            dwExtraInfo = UIntPtr.Zero,
+            dwExtraInfo = MouseExtra(),
         };
-        var inp = new INPUT { type = INPUT_MOUSE, mi = mi };
-        SendInput(1, [inp], InputSize);
+        var inp = new NativeMethods.INPUT { type = INPUT_MOUSE, U = new NativeMethods.InputUnion { mi = mi } };
+        NativeMethods.SendInput(1, [inp], InputSize);
     }
 
     public static void SendMouseButtonUp(MouseButton button, int timeJitterMs = 0)
@@ -134,17 +118,17 @@ public static class Win32MouseInput
             _ => MOUSEEVENTF_LEFTUP,
         };
         uint t = timeJitterMs == 0 ? 0 : (uint)Math.Clamp(Environment.TickCount + timeJitterMs, 0, int.MaxValue);
-        var mi = new MOUSEINPUT
+        var mi = new NativeMethods.MOUSEINPUT
         {
             dx = 0,
             dy = 0,
             mouseData = 0,
             dwFlags = flags,
             time = t,
-            dwExtraInfo = UIntPtr.Zero,
+            dwExtraInfo = MouseExtra(),
         };
-        var inp = new INPUT { type = INPUT_MOUSE, mi = mi };
-        SendInput(1, [inp], InputSize);
+        var inp = new NativeMethods.INPUT { type = INPUT_MOUSE, U = new NativeMethods.InputUnion { mi = mi } };
+        NativeMethods.SendInput(1, [inp], InputSize);
     }
 
     public static Point GetCursorScreenPoint()

@@ -52,7 +52,7 @@ public static class MacroScriptValidation
         RepeatAction rep => ActionsRequireDesktop(rep.LoopActions),
         TryCatchAction tc => ActionsRequireDesktop(tc.TryActions) || ActionsRequireDesktop(tc.CatchActions),
         IfVariableAction iv => ActionsRequireDesktop(iv.ThenActions) || ActionsRequireDesktop(iv.ElseActions),
-        SetVariableAction or LogAction => false,
+        SetVariableAction or LogAction or OcrRegionAction or ClearVariableAction or LogVariableAction => false,
         _ => false,
     };
 
@@ -79,7 +79,7 @@ public static class MacroScriptValidation
         RepeatAction rep => ActionsContainWebAutomation(rep.LoopActions),
         TryCatchAction tc => ActionsContainWebAutomation(tc.TryActions) || ActionsContainWebAutomation(tc.CatchActions),
         IfVariableAction iv => ActionsContainWebAutomation(iv.ThenActions) || ActionsContainWebAutomation(iv.ElseActions),
-        SetVariableAction or LogAction => false,
+        SetVariableAction or LogAction or OcrRegionAction or ClearVariableAction or LogVariableAction => false,
         _ => false,
     };
 }

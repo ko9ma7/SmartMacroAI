@@ -1,3 +1,5 @@
+// Created by Phạm Duy – Giải pháp tự động hóa thông minh.
+
 using System.Windows;
 using System.Windows.Controls;
 
@@ -24,6 +26,9 @@ public partial class ActionTypePicker : Window
             new("TryCatch", "Bẫy lỗi (Try/Catch)"),
             new("IfImageFound", "Nếu thấy ảnh"),
             new("IfTextFound", "Nếu thấy chữ (OCR)"),
+            new("OcrRegion", "Đọc văn bản (OCR)"),
+            new("ClearVar", "Xóa biến"),
+            new("LogVar", "In biến vào log"),
             new("WebAction", "Thao tác web"),
             new("WebNavigate", "Web: Điều hướng"),
             new("WebClick", "Web: Nhấp"),
