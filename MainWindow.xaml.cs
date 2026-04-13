@@ -74,7 +74,7 @@ public partial class MainWindow : Window
 
     // ── Update Checker ──
     /// <summary>Fallback display / parse if assembly version is unavailable.</summary>
-    private const string CurrentVersion   = "v1.2.1";
+    private const string CurrentVersion   = "v1.2.2";
     private const string GitHubApiUrl     = "https://api.github.com/repos/TroniePh/SmartMacroAI/releases/latest";
     private const string LandingPageUrl   = "https://tronieph.github.io/SmartMacroAI-Website/";
     /// <summary>GitHub rejects API calls without a descriptive User-Agent.</summary>
@@ -904,11 +904,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            ProcessStealthService.Instance.AttachWindow(this);
+            ModuleAuditService.Instance.AttachWindow(this);
             var app = AppSettings.Load();
-            ProcessStealthService.Instance.StartTitleRandomizerIfEnabled(app);
+            ModuleAuditService.Instance.StartTitleRandomizerIfEnabled(app);
             ApplyCaptureAffinityFromSettings();
-            ProcessStealthService.ScanForeignModulesOnStartupIfEnabled(msg =>
+            ModuleAuditService.ScanForeignModulesOnStartupIfEnabled(msg =>
                 Dispatcher.BeginInvoke(() =>
                     MessageBox.Show(this, msg, "SmartMacroAI", MessageBoxButton.OK, MessageBoxImage.Warning)));
         }
@@ -926,7 +926,7 @@ public partial class MainWindow : Window
             if (hwnd == IntPtr.Zero)
                 return;
             var s = AppSettings.Load();
-            ProcessStealthService.ApplyExcludeFromCapture(hwnd, s.AntiDetectionEnabled && s.AntiDetectionHideFromCapture);
+            ModuleAuditService.ApplyExcludeFromCapture(hwnd, s.AntiDetectionEnabled && s.AntiDetectionHideFromCapture);
         }
         catch (Exception ex)
         {
@@ -996,8 +996,8 @@ public partial class MainWindow : Window
 
         s.Save();
         Win32MouseInput.UseAntiDetectionMouseStyle = s.AntiDetectionEnabled;
-        ProcessStealthService.Instance.StopTitleRandomizer();
-        ProcessStealthService.Instance.StartTitleRandomizerIfEnabled(s);
+        ModuleAuditService.Instance.StopTitleRandomizer();
+        ModuleAuditService.Instance.StartTitleRandomizerIfEnabled(s);
         ApplyCaptureAffinityFromSettings();
         ShowToast(LanguageManager.GetString("ui_Toast_AntiSaved"), isError: false);
     }
@@ -2921,7 +2921,7 @@ public partial class MainWindow : Window
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
         _dashboardVariablesTimer?.Stop();
-        ProcessStealthService.Instance.StopTitleRandomizer();
+        ModuleAuditService.Instance.StopTitleRandomizer();
         LanguageManager.UiLanguageChanged -= OnUiLanguageChanged;
         UnregisterHotkeys();
         ShowAllHiddenWindows();

@@ -21,6 +21,7 @@ publish/
 installer_out/
 release_output/
 _compile_out/
+_ocr_build_out/
 
 # Obfuscator output
 obfuscar.xml
