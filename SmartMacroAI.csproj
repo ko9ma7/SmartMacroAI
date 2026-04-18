@@ -16,9 +16,9 @@
     <Product>SmartMacroAI</Product>
     <Company>Phạm Duy</Company>
     <Copyright>Created by Phạm Duy - Giải pháp tự động hóa thông minh.</Copyright>
-    <Version>1.2.2</Version>
-    <AssemblyVersion>1.2.2.0</AssemblyVersion>
-    <FileVersion>1.2.2.0</FileVersion>
+    <Version>1.2.3</Version>
+    <AssemblyVersion>1.2.3.0</AssemblyVersion>
+    <FileVersion>1.2.3.0</FileVersion>
     <Description>SmartMacroAI - RPA Automation Tool for Windows. Non-invasive macro automation with Image and OCR recognition.</Description>
   </PropertyGroup>
 
@@ -38,6 +38,17 @@
     <PackageReference Include="Microsoft.Playwright" Version="1.59.0" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.5" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="tessdata\eng.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>tessdata\eng.traineddata</Link>
+    </Content>
+    <Content Include="tessdata\vie.traineddata">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>tessdata\vie.traineddata</Link>
+    </Content>
   </ItemGroup>
 
 </Project>

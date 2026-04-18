@@ -818,6 +818,12 @@
                                                   SelectionChanged="CmbWinRtOcrLanguage_SelectionChanged" />
                                     </StackPanel>
                                     <StackPanel VerticalAlignment="Bottom" Margin="0,0,0,8">
+                                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Ngôn ngữ OCR" />
+                                        <ComboBox x:Name="CmbTesseractLanguage" Width="140" Style="{StaticResource DarkComboBoxStyle}" FontSize="12" Margin="0,4,0,6">
+                                            <ComboBoxItem Content="English" Tag="eng" IsSelected="True" />
+                                            <ComboBoxItem Content="Tiếng Việt" Tag="vie" />
+                                            <ComboBoxItem Content="English + Tiếng Việt" Tag="eng+vie" />
+                                        </ComboBox>
                                         <Button Style="{StaticResource PrimaryButtonStyle}" Content="{DynamicResource ui_ExtractText}" Click="BtnTestOcr_Click" Padding="16,8" />
                                     </StackPanel>
                                 </WrapPanel>

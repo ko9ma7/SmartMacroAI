@@ -2117,7 +2117,7 @@ public partial class MainWindow : Window
         if (sender is not Button btn) return;
         MacroAction? action = FindActionForCanvasTag(btn.Tag);
         if (action is null) return;
-        var dlg = new ActionEditDialog(action) { Owner = this };
+        var dlg = new ActionEditDialog(action, _editorTargetHwnd) { Owner = this };
         if (dlg.ShowDialog() == true)
         {
             RebuildCanvas();
@@ -2149,7 +2149,7 @@ public partial class MainWindow : Window
         if (newAction is null)
             return;
 
-        var dialog = new ActionEditDialog(newAction) { Owner = this };
+        var dialog = new ActionEditDialog(newAction, _editorTargetHwnd) { Owner = this };
         if (dialog.ShowDialog() != true)
             return;
 
@@ -2171,7 +2171,7 @@ public partial class MainWindow : Window
         if (newAction is null)
             return;
 
-        var dialog = new ActionEditDialog(newAction) { Owner = this };
+        var dialog = new ActionEditDialog(newAction, _editorTargetHwnd) { Owner = this };
         if (dialog.ShowDialog() != true)
             return;
 
@@ -2197,7 +2197,7 @@ public partial class MainWindow : Window
         if (newAction is null)
             return;
 
-        var dialog = new ActionEditDialog(newAction) { Owner = this };
+        var dialog = new ActionEditDialog(newAction, _editorTargetHwnd) { Owner = this };
         if (dialog.ShowDialog() != true)
             return;
 
@@ -2699,6 +2699,10 @@ public partial class MainWindow : Window
         string windowTitle = CmbOcrWindowTitle.Text.Trim();
         if (string.IsNullOrEmpty(windowTitle)) { TxtOcrResult.Text = "Provide a Window Title."; TxtOcrResult.Foreground = (Brush)FindResource("AccentRedBrush"); return; }
 
+        string langTag = "eng";
+        if (CmbTesseractLanguage?.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is string tag)
+            langTag = tag;
+
         TxtOcrResult.Text = "Extracting text...";
         TxtOcrResult.Foreground = (Brush)FindResource("SubtextBrush");
 
@@ -2708,11 +2712,11 @@ public partial class MainWindow : Window
             {
                 IntPtr hwnd = Win32Api.FindWindowByPartialTitle(windowTitle);
                 if (hwnd == IntPtr.Zero) throw new InvalidOperationException($"Window not found: \"{windowTitle}\"");
-                return VisionEngine.ExtractTextFromWindow(hwnd);
+                return VisionEngine.ExtractTextAndSave(hwnd, langTag);
             });
             TxtOcrResult.Text = string.IsNullOrWhiteSpace(text) ? "(no text detected)" : text;
             TxtOcrResult.Foreground = (Brush)FindResource("TextBrush");
-            AppendLog($"[OCR Test] Extracted {text.Length} chars.");
+            AppendLog($"[OCR Test] Extracted {text.Length} chars ({langTag}).");
         }
         catch (Exception ex) { TxtOcrResult.Text = $"Error: {ex.Message}"; TxtOcrResult.Foreground = (Brush)FindResource("AccentRedBrush"); }
     }

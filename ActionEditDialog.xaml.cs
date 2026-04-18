@@ -1,7 +1,9 @@
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Microsoft.Win32;
+using SmartMacroAI.Core;
 using SmartMacroAI.Models;
 
 namespace SmartMacroAI;
@@ -9,6 +11,7 @@ namespace SmartMacroAI;
 public partial class ActionEditDialog : Window
 {
     private readonly MacroAction _action;
+    private readonly IntPtr _targetHwnd;
     private readonly Dictionary<string, TextBox> _fields = [];
     private readonly Dictionary<string, CheckBox> _checkFields = [];
     private readonly Dictionary<string, ComboBox> _comboFields = [];
@@ -20,10 +23,12 @@ public partial class ActionEditDialog : Window
     private static readonly Brush InputBorder = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#45475A"));
     private static readonly Brush AccentBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#89B4FA"));
 
-    public ActionEditDialog(MacroAction action)
+    public ActionEditDialog(MacroAction action) : this(action, IntPtr.Zero) { }
+    public ActionEditDialog(MacroAction action, IntPtr targetHwnd)
     {
         InitializeComponent();
         _action = action;
+        _targetHwnd = targetHwnd;
         TxtDialogTitle.Text = $"Chỉnh sửa: {action.DisplayName}";
         BuildFields();
     }
@@ -33,8 +38,8 @@ public partial class ActionEditDialog : Window
         switch (_action)
         {
             case ClickAction c:
-                AddField("X", c.X.ToString(), displayCaption: "Tọa độ X");
-                AddField("Y", c.Y.ToString(), displayCaption: "Tọa độ Y");
+                AddFieldWithPickerButton("X", c.X.ToString(), "Tọa độ X");
+                AddFieldWithPickerButton("Y", c.Y.ToString(), "Tọa độ Y");
                 AddCheckField("IsRightClick", c.IsRightClick, "Nhấp chuột phải thay vì trái");
                 break;
             case TypeAction t:
@@ -314,6 +319,80 @@ public partial class ActionEditDialog : Window
         {
             FieldsPanel.Children.Add(textBox);
         }
+    }
+
+    private TextBox? _coordXBox;
+    private TextBox? _coordYBox;
+
+    private void AddFieldWithPickerButton(string fieldKey, string value, string displayCaption)
+    {
+        FieldsPanel.Children.Add(new TextBlock
+        {
+            Text = displayCaption,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = LabelBrush,
+            Margin = new Thickness(0, 8, 0, 4),
+        });
+
+        var textBox = new TextBox
+        {
+            Text = value,
+            Background = InputBg,
+            Foreground = InputFg,
+            BorderBrush = InputBorder,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 6, 8, 6),
+            FontSize = 12,
+            CaretBrush = InputFg,
+        };
+        _fields[fieldKey] = textBox;
+        if (fieldKey == "X") _coordXBox = textBox;
+        if (fieldKey == "Y") _coordYBox = textBox;
+
+        var panel = new DockPanel();
+        var btnPick = new Button
+        {
+            Content = "\U0001F4CD Lấy tọa độ",
+            Background = AccentBrush,
+            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#11111B")),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 6, 10, 6),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(4, 0, 0, 0),
+        };
+        btnPick.Click += BtnPickCoord_Click;
+
+        DockPanel.SetDock(btnPick, Dock.Right);
+        panel.Children.Add(btnPick);
+        panel.Children.Add(textBox);
+        FieldsPanel.Children.Add(panel);
+    }
+
+    private async void BtnPickCoord_Click(object sender, RoutedEventArgs e)
+    {
+        if (_coordXBox is null && _coordYBox is null) return;
+
+        if (_targetHwnd != IntPtr.Zero)
+        {
+            Win32Api.ShowWindow(_targetHwnd, Win32Api.SW_RESTORE);
+            Win32Api.SetForegroundWindow(_targetHwnd);
+            await Task.Delay(300);
+        }
+
+        Hide();
+        await Task.Delay(200);
+
+        var picker = new CoordinatePickerWindow(_targetHwnd);
+        if (picker.ShowDialog() == true)
+        {
+            var pt = picker.PickedPoint;
+            if (_coordXBox != null) _coordXBox.Text = pt.X.ToString();
+            if (_coordYBox != null) _coordYBox.Text = pt.Y.ToString();
+        }
+
+        Show();
     }
 
     private void AddCheckField(string key, bool value, string description)

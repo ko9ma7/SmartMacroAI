@@ -23,12 +23,13 @@ namespace SmartMacroAI.Core;
 public static class VisionEngine
 {
     private static readonly object TessLock = new();
-    private static TesseractOcr.TesseractEngine? _tessEngine;
 
     public static string TessDataPath { get; set; } =
         Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tessdata");
 
     public static string TessLanguage { get; set; } = "eng";
+
+    private static readonly Dictionary<string, TesseractOcr.TesseractEngine> _engineCache = new();
 
     // ═══════════════════════════════════════════════════
     //  BITMAP ↔ MAT CONVERSION
@@ -282,67 +283,154 @@ public static class VisionEngine
     /// to extract all visible text.
     /// Requires tessdata/{lang}.traineddata to be present.
     /// </summary>
-    public static string ExtractTextFromWindow(IntPtr hwnd)
+    public static string ExtractTextFromWindow(IntPtr hwnd, string language = "eng")
     {
         using Bitmap captured = CaptureHiddenWindow(hwnd);
-        return ExtractTextFromBitmap(captured);
+        return ExtractTextFromBitmap(captured, language);
     }
 
     /// <summary>
-    /// Runs Tesseract OCR on a pre-captured bitmap.
+    /// Runs Tesseract OCR on a pre-captured bitmap using the specified language.
+    /// Supported: "eng", "vie", or "eng+vie".
     /// </summary>
-    public static string ExtractTextFromBitmap(Bitmap bitmap)
+    public static string ExtractTextFromBitmap(Bitmap bitmap, string language = "eng")
     {
-        var engine = GetTesseractEngine();
-        if (engine is null)
-            return "[OCR unavailable — tessdata not found. " +
-                   $"Place {TessLanguage}.traineddata in: {TessDataPath}]";
-
-        using var ms = new MemoryStream();
-        bitmap.Save(ms, ImageFormat.Png);
-        using var pix  = TesseractOcr.Pix.LoadFromMemory(ms.ToArray());
-        using var page = engine.Process(pix);
-        return page.GetText().Trim();
-    }
-
-    /// <summary>
-    /// Checks whether the required tessdata files exist and the engine can be initialised.
-    /// </summary>
-    public static bool IsTesseractAvailable()
-    {
-        string trainedDataFile = Path.Combine(TessDataPath, $"{TessLanguage}.traineddata");
-        return File.Exists(trainedDataFile);
-    }
-
-    private static TesseractOcr.TesseractEngine? GetTesseractEngine()
-    {
-        if (_tessEngine is not null) return _tessEngine;
-
-        lock (TessLock)
+        try
         {
-            if (_tessEngine is not null) return _tessEngine;
+            var engine = GetTesseractEngine(language);
+            if (engine is null)
+                return $"[OCR unavailable — tessdata not found. " +
+                       $"Place {language}.traineddata in: {TessDataPath}]";
 
-            if (!IsTesseractAvailable())
-                return null;
-
-            _tessEngine = new TesseractOcr.TesseractEngine(
-                TessDataPath,
-                TessLanguage,
-                TesseractOcr.EngineMode.Default);
-
-            return _tessEngine;
+            using var ms = new MemoryStream();
+            bitmap.Save(ms, ImageFormat.Png);
+            using var pix  = TesseractOcr.Pix.LoadFromMemory(ms.ToArray());
+            using var page = engine.Process(pix);
+            return page.GetText().Trim();
+        }
+        catch (Exception ex)
+        {
+            string realError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            {
+                System.Windows.MessageBox.Show(
+                    $"Lỗi OCR gốc:\n\n{realError}\n\nChi tiết:\n{ex.GetType().Name}",
+                    "OCR Error",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            });
+            return $"[OCR error: {realError}]";
         }
     }
 
     /// <summary>
-    /// Releases the cached Tesseract engine (call on app shutdown).
+    /// Checks whether the required tessdata files exist for the given language.
+    /// </summary>
+    public static bool IsTesseractAvailable(string language = "eng")
+    {
+        string trainedDataFile = Path.Combine(TessDataPath, $"{language}.traineddata");
+        if (File.Exists(trainedDataFile)) return true;
+        if (language.Contains('+'))
+        {
+            foreach (var lang in language.Split('+'))
+            {
+                if (!File.Exists(Path.Combine(TessDataPath, $"{lang.Trim()}.traineddata")))
+                    return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static TesseractOcr.TesseractEngine? GetTesseractEngine(string language = "eng")
+    {
+        if (_engineCache.TryGetValue(language, out var cached))
+            return cached;
+
+        lock (TessLock)
+        {
+            if (_engineCache.TryGetValue(language, out cached))
+                return cached;
+
+            if (!IsTesseractAvailable(language))
+            {
+                System.Diagnostics.Debug.WriteLine($"[VisionEngine] tessdata not found for language: {language}");
+                return null;
+            }
+
+            try
+            {
+                var engine = new TesseractOcr.TesseractEngine(
+                    TessDataPath,
+                    language,
+                    TesseractOcr.EngineMode.Default);
+                _engineCache[language] = engine;
+                return engine;
+            }
+            catch (Exception ex)
+            {
+                string realError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                System.Diagnostics.Debug.WriteLine($"[VisionEngine] TesseractEngine init failed ({language}): {realError}");
+                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    System.Windows.MessageBox.Show(
+                        $"Lỗi OCR gốc:\n\n{realError}\n\nChi tiết:\n{ex.GetType().Name}\n\nKiểm tra:\n1. Thư mục x86/ x64 có cạnh SmartMacroAI.exe không?\n2. File tessdata/{language}.traineddata có trong thư mục SmartMacroAI không?",
+                        "OCR Init Error",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                });
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts text and simultaneously saves it to a timestamped .txt file,
+    /// then opens the containing folder in Explorer.
+    /// </summary>
+    public static string ExtractTextAndSave(Bitmap bitmap, string language = "eng")
+    {
+        string text = ExtractTextFromBitmap(bitmap, language);
+
+        if (string.IsNullOrWhiteSpace(text) || text.StartsWith("[OCR error") || text.StartsWith("[OCR unavailable"))
+            return text;
+
+        string extractDir = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory,
+            "extracts");
+
+        Directory.CreateDirectory(extractDir);
+
+        string fileName = $"ocr_{DateTime.Now:yyyyMMdd_HHmmss}_{language}.txt";
+        string filePath = Path.Combine(extractDir, fileName);
+
+        File.WriteAllText(filePath, text, System.Text.Encoding.UTF8);
+
+        try { System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\""); }
+        catch { /* ignore if explorer fails */ }
+
+        return text;
+    }
+
+    /// <summary>
+    /// Extracts text from a window (captures + OCR + saves to file + opens folder).
+    /// </summary>
+    public static string ExtractTextAndSave(IntPtr hwnd, string language = "eng")
+    {
+        using Bitmap captured = CaptureHiddenWindow(hwnd);
+        return ExtractTextAndSave(captured, language);
+    }
+
+    /// <summary>
+    /// Releases all cached Tesseract engines (call on app shutdown).
     /// </summary>
     public static void Shutdown()
     {
         lock (TessLock)
         {
-            _tessEngine?.Dispose();
-            _tessEngine = null;
+            foreach (var engine in _engineCache.Values)
+                engine?.Dispose();
+            _engineCache.Clear();
         }
     }
 }
