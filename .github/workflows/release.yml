@@ -27,7 +27,15 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Publish
-        run: dotnet publish SmartMacroAI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ./release_output
+        run: dotnet publish SmartMacroAI.csproj -c Release -r win-x64 --self-contained true -o ./release_output
+
+      - name: Copy native runtimes and tessdata
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force ./bin/Release/net8.0-windows10.0.19041.0/x86 ./release_output/ -ErrorAction SilentlyContinue
+          Copy-Item -Recurse -Force ./bin/Release/net8.0-windows10.0.19041.0/x64 ./release_output/ -ErrorAction SilentlyContinue
+          Copy-Item -Recurse -Force ./bin/Release/net8.0-windows10.0.19041.0/runtimes ./release_output/ -ErrorAction SilentlyContinue
+          Copy-Item -Recurse -Force ./tessdata ./release_output/ -ErrorAction SilentlyContinue
 
       - name: Portable EXE for release
         shell: pwsh
