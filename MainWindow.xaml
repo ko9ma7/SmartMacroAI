@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:loc="clr-namespace:SmartMacroAI.Localization"
+        xmlns:local="clr-namespace:SmartMacroAI"
         mc:Ignorable="d"
         Title="{DynamicResource ui_WindowTitle}"
         Icon="pack://application:,,,/Assets/logo.ico"
@@ -220,7 +221,7 @@
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="{DynamicResource ui_WindowTitle}" FontSize="16" FontWeight="Bold"
                                            Foreground="{StaticResource TextBrush}" />
-                                <TextBlock Text="v1.2.0" FontSize="10"
+                                <TextBlock Text="{x:Static local:MainWindow.AppVersion}" FontSize="10"
                                            Foreground="{StaticResource OverlayBrush}" Margin="0,-1,0,0" />
                             </StackPanel>
                         </StackPanel>
