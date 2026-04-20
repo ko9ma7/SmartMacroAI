@@ -29,6 +29,7 @@ namespace SmartMacroAI.Models;
 [JsonDerivedType(typeof(LaunchAndBindAction), "LaunchAndBind")]
 [JsonDerivedType(typeof(KeyPressAction), "KeyPress")]
 [JsonDerivedType(typeof(TelegramAction), "Telegram")]
+[JsonDerivedType(typeof(CallMacroAction), "CallMacro")]
 public abstract class MacroAction
 {
     public string DisplayName { get; set; } = string.Empty;
@@ -53,6 +54,13 @@ public class ClickAction : MacroAction
     /// When true, sends WM_RBUTTONDOWN/UP instead of WM_LBUTTONDOWN/UP.
     /// </summary>
     public bool IsRightClick { get; set; }
+
+    /// <summary>
+    /// Monitor index (0-based) where this click was captured.
+    /// Used for multi-monitor setups to resolve absolute coordinates correctly.
+    /// -1 = not set / use primary monitor.
+    /// </summary>
+    public int MonitorIndex { get; set; } = -1;
 
     public ClickAction()
     {
@@ -184,17 +192,34 @@ public class TryCatchAction : MacroAction
 }
 
 /// <summary>
-/// Types text into the target HWND using WM_CHAR messages.
-/// Non-invasive — the physical keyboard is not touched.
+/// Input method for typing text into a target window.
+/// </summary>
+public enum TypeInputMethod
+{
+    /// <summary>Default — use clipboard paste (recommended for Vietnamese/Unikey).</summary>
+    Clipboard = 0,
+
+    /// <summary>WM_CHAR char-by-char (fallback for apps that block clipboard).</summary>
+    WmChar = 1,
+}
+
+/// <summary>
+/// Types text into the target HWND using clipboard paste or WM_CHAR messages.
 /// </summary>
 public class TypeAction : MacroAction
 {
     public string Text { get; set; } = string.Empty;
 
     /// <summary>
-    /// Optional inter-keystroke delay (ms) to simulate human typing speed.
+    /// Optional inter-keystroke delay (ms) when using WM_CHAR method.
+    /// Default = 0 means clipboard paste is used (recommended for Vietnamese/Unikey).
     /// </summary>
     public int KeyDelayMs { get; set; }
+
+    /// <summary>
+    /// Input method: Clipboard (default, recommended for Vietnamese) or WM_CHAR.
+    /// </summary>
+    public TypeInputMethod InputMethod { get; set; } = TypeInputMethod.Clipboard;
 
     public TypeAction()
     {
@@ -462,6 +487,22 @@ public class LaunchAndBindAction : MacroAction
 }
 
 /// <summary>
+/// Input mode for key press actions, determining how keystrokes are sent.
+/// Created by Phạm Duy – Giải pháp tự động hóa thông minh.
+/// </summary>
+public enum KeyInputMode
+{
+    /// <summary>PostMessage (stealth, default) — runs in background, no foreground window needed.</summary>
+    Auto = 0,
+
+    /// <summary>SendInput with VirtualKey — for Chrome, Electron, VS Code (requires foreground).</summary>
+    SendInput = 1,
+
+    /// <summary>SendInput with ScanCode only — for DirectX games and Anti-Cheat systems.</summary>
+    RawInput = 2,
+}
+
+/// <summary>
 /// Sends a single keystroke (key-down followed by key-up via PostMessage) to the target window.
 /// Unlike TypeAction which sends WM_CHAR for printable characters, this sends raw VK codes
 /// via WM_KEYDOWN / WM_KEYUP — ideal for modifier keys (Ctrl, Alt, F-keys, etc.).
@@ -482,6 +523,11 @@ public class KeyPressAction : MacroAction
 
     /// <summary>How long (ms) the key is held between down and up events.</summary>
     public int HoldDurationMs { get; set; } = 50;
+
+    /// <summary>
+    /// Input mode: Auto (PostMessage/stealth), SendInput (Chrome/Electron), or RawInput (DirectX games).
+    /// </summary>
+    public KeyInputMode InputMode { get; set; } = KeyInputMode.Auto;
 
     public KeyPressAction()
     {

@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using WinForms = System.Windows.Forms;
+using WpfApp = System.Windows.Application;
 using SmartMacroAI.Localization;
 using SmartMacroAI.Models;
 
@@ -170,6 +171,11 @@ public sealed class MacroEngine
     public bool HardwareMode { get; set; }
 
     /// <summary>
+    /// Exposes the VariableStore for external callers (e.g. sub-macro variable passing).
+    /// </summary>
+    public VariableStore Variables => _variableStore;
+
+    /// <summary>
     /// Merged script variables + optional per-iteration CSV columns (case-insensitive keys).
     /// </summary>
     private Dictionary<string, string> _runtimeVariables = new(StringComparer.OrdinalIgnoreCase);
@@ -187,11 +193,62 @@ public sealed class MacroEngine
     private int _totalRowsDone;
     private DateTime _sessionStartTime;
 
+    /// <summary>Maximum nesting depth for sub-macros to prevent infinite recursion.</summary>
+    private const int MaxSubMacroDepth = 10;
+
+    /// <summary>Current nesting depth of sub-macro execution.</summary>
+    private readonly int _subMacroDepth;
+
+    /// <summary>The script currently running in this engine instance (for self-call detection).</summary>
+    private MacroScript? _currentScript;
+
+    /// <summary>Run history service for recording macro execution results.</summary>
+    private readonly RunHistoryService _runHistoryService = new();
+
+    /// <summary>Current run record being populated during execution.</summary>
+    private MacroRunRecord? _currentRunRecord;
+
     /// <summary>Creates an engine instance and wires Bézier mouse diagnostics to <see cref="Log"/>.</summary>
     public MacroEngine()
     {
         _mouseMover.DiagnosticLog = msg => Log?.Invoke(msg);
     }
+
+    /// <summary>
+    /// Creates an engine instance with an existing script and target HWND.
+    /// Used by sub-macros that need to pass runtime variables.
+    /// </summary>
+    public MacroEngine(MacroScript script, IntPtr hwnd, Action<string>? log)
+    {
+        _mouseMover.DiagnosticLog = msg => log?.Invoke(msg);
+        Log = log;
+        TargetHwnd = hwnd;
+        InitialScript = script;
+        _currentScript = script;
+    }
+
+    /// <summary>
+    /// Internal constructor used by <see cref="ExecuteCallMacroAsync"/> to track nesting depth.
+    /// </summary>
+    private MacroEngine(MacroEngine parent, MacroScript script, IntPtr hwnd, Action<string>? log)
+    {
+        _mouseMover.DiagnosticLog = msg => log?.Invoke(msg);
+        Log = log;
+        TargetHwnd = hwnd;
+        InitialScript = script;
+        _currentScript = script;
+        _subMacroDepth = parent._subMacroDepth + 1;
+    }
+
+    /// <summary>
+    /// Target Win32 window HWND for desktop automation.
+    /// </summary>
+    public IntPtr TargetHwnd { get; set; }
+
+    /// <summary>
+    /// Initial script to run (used with <see cref="TargetHwnd"/> constructor overload).
+    /// </summary>
+    public MacroScript? InitialScript { get; set; }
 
     // ═══════════════════════════════════════════════
     //  EVENTS — for UI progress/logging
@@ -204,8 +261,16 @@ public sealed class MacroEngine
     public event Action<int, int>? DataRowCompleted;
     public event Action? ExecutionFinished;
     public event Action<Exception>? ExecutionFaulted;
+    public event Action<IReadOnlyList<(string Name, string Value, string Source)>>? VariablesUpdated;
 
     private void OnLog(string message) => Log?.Invoke(message);
+
+    /// <summary>Fires the VariablesUpdated event with current live variable snapshot.</summary>
+    private void FireVariablesUpdated()
+    {
+        var rows = GetLiveVariableRows();
+        VariablesUpdated?.Invoke(rows);
+    }
 
     /// <summary>
     /// Returns true if the script (including nested IF branches) contains a
@@ -338,6 +403,15 @@ public sealed class MacroEngine
         _totalRowsDone = 0;
         _sessionStartTime = DateTime.Now;
 
+        // Create run history record
+        _currentRunRecord = new MacroRunRecord
+        {
+            MacroName   = script.Name,
+            MacroFile   = script.FilePath ?? "",
+            StartTime   = DateTime.Now,
+            TotalSteps  = script.Actions.Count
+        };
+
         _ocrService = new OcrService(AppSettings.Load().OcrLanguageTag);
 
         _mouseMover.ReloadFromAppSettings();
@@ -364,6 +438,19 @@ public sealed class MacroEngine
                 OnLog("Execution completed successfully.");
                 ExecutionFinished?.Invoke();
                 FireTelegramCompletion(script, rowsDone: _totalRowsDone, total: _totalRowsDone, hasError: false, lastErrorMessage: null);
+
+                // Save successful run to history
+                if (_currentRunRecord != null)
+                {
+                    _currentRunRecord.EndTime = DateTime.Now;
+                    _currentRunRecord.Success = true;
+                    _currentRunRecord.CompletedSteps = _currentRunRecord.TotalSteps;
+                    _runHistoryService.Save(_currentRunRecord);
+                    NotificationService.Instance.PushSuccess(
+                        "Macro hoàn thành",
+                        $"'{script.Name}' đã chạy thành công",
+                        script.Name);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -378,6 +465,21 @@ public sealed class MacroEngine
                 OnLog($"Execution faulted: {ex.Message}");
                 ExecutionFaulted?.Invoke(ex);
                 FireTelegramCompletion(script, rowsDone: _totalRowsDone, total: _totalRowsTotal, hasError: true, lastErrorMessage: ex.Message);
+
+                // Save failed run to history
+                if (_currentRunRecord != null)
+                {
+                    _currentRunRecord.EndTime = DateTime.Now;
+                    _currentRunRecord.Success = false;
+                    _currentRunRecord.ErrorMessage = ex.Message;
+                    _currentRunRecord.CompletedSteps = _totalRowsDone;
+                    _runHistoryService.Save(_currentRunRecord);
+                    NotificationService.Instance.PushError(
+                        "Macro thất bại",
+                        $"'{script.Name}' lỗi: {Truncate(ex.Message, 80)}",
+                        script.Name);
+                }
+
                 throw;
             }
         }
@@ -604,6 +706,7 @@ public sealed class MacroEngine
             _currentMacroIteration = rowNum;
             OnLog($"── CSV Row {rowNum}/{total} ── {string.Join(", ", row.Select(kv => $"{kv.Key}={Truncate(kv.Value, 30)}"))}");
             IterationStarted?.Invoke(rowNum, total);
+            FireVariablesUpdated();
 
             try
             {
@@ -884,16 +987,181 @@ public sealed class MacroEngine
 
             try
             {
-                var appCfg = AppSettings.Load();
-                await BehaviorRandomizer.BetweenActionsAsync(
-                    _behaviorState,
-                    appCfg,
-                    HardwareMode,
-                    _runtimeTargetHwnd,
-                    p => _mouseMover.MoveToAsync(p, BezierMouseMover.ParseProfile(appCfg.MouseProfileName), token),
-                    (b, v, ct) => _macroRunner.Timing.WaitAsync(b, v, ct),
-                    OnLog,
-                    token).ConfigureAwait(false);
+                // Anti-detection behavior
+                try
+                {
+                    var appCfg = AppSettings.Load();
+                    await BehaviorRandomizer.BetweenActionsAsync(
+                        _behaviorState,
+                        appCfg,
+                        HardwareMode,
+                        _runtimeTargetHwnd,
+                        p => _mouseMover.MoveToAsync(p, BezierMouseMover.ParseProfile(appCfg.MouseProfileName), token),
+                        (b, v, ct) => _macroRunner.Timing.WaitAsync(b, v, ct),
+                        OnLog,
+                        token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { OnLog($"[Anti-Detection] ⚠ {ex.Message}"); }
+
+                ActionStarted?.Invoke(action, idx);
+
+                switch (action)
+                {
+                    case LaunchAndBindAction launch:
+                        await ExecuteLaunchAndBindAsync(launch, token).ConfigureAwait(false);
+                        break;
+
+                    case ClickAction click:
+                        EnsureDesktopTargetBound();
+                        await ExecuteClickAsync(click, token).ConfigureAwait(false);
+                        break;
+
+                    case WaitAction wait:
+                        await ExecuteWaitAsync(wait, token);
+                        break;
+
+                    case RepeatAction repeat:
+                        await ExecuteRepeatAsync(repeat, token).ConfigureAwait(false);
+                        break;
+
+                    case TypeAction type:
+                        EnsureDesktopTargetBound();
+                        await ExecuteTypeAsync(type, token);
+                        break;
+
+                    case KeyPressAction kpa:
+                        EnsureDesktopTargetBound();
+                        await ExecuteKeyPressAsync(kpa, token);
+                        break;
+
+                    case IfImageAction ifImage:
+                        EnsureDesktopTargetBound();
+                        await ExecuteIfImageAsync(ifImage, token);
+                        break;
+
+                    case IfTextAction ifText:
+                        EnsureDesktopTargetBound();
+                        await ExecuteIfTextAsync(ifText, token);
+                        break;
+
+                    case WebAction webAction:
+                        await ExecuteWebActionAsync(
+                            ExpandRuntime(webAction.Url),
+                            ExpandRuntime(webAction.Selector),
+                            webAction.ActionType.ToString(),
+                            ExpandRuntime(webAction.TextToType),
+                            token);
+                        break;
+
+                    case WebNavigateAction webNav:
+                        await ExecuteWebNavigateAsync(webNav, token);
+                        break;
+
+                    case WebClickAction webClick:
+                        await ExecuteWebClickAsync(webClick, token);
+                        break;
+
+                    case WebTypeAction webType:
+                        await ExecuteWebTypeAsync(webType, token);
+                        break;
+
+                    case SystemAction sys:
+                        await ExecuteSystemActionAsync(sys, token).ConfigureAwait(false);
+                        break;
+
+                    case SetVariableAction setVar:
+                    {
+                        string resolved;
+                        if (string.Equals(setVar.ValueSource, "Clipboard", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try { resolved = WinForms.Clipboard.GetText() ?? string.Empty; }
+                            catch (Exception ex) { resolved = string.Empty; OnLog($"    ⚠ Clipboard: {ex.Message}"); }
+                        }
+                        else { resolved = ExpandRuntime(setVar.Value); }
+
+                        string op = (setVar.Operation ?? "Set").Trim();
+                        string name = setVar.VarName.Trim();
+                        if (string.Equals(op, "Increment", StringComparison.OrdinalIgnoreCase))
+                            _vars.Increment(name, int.TryParse(resolved, NumberStyles.Integer, CultureInfo.InvariantCulture, out int ia) ? ia : 1);
+                        else if (string.Equals(op, "Decrement", StringComparison.OrdinalIgnoreCase))
+                            _vars.Increment(name, int.TryParse(resolved, NumberStyles.Integer, CultureInfo.InvariantCulture, out int da) ? -da : -1);
+                        else
+                            _vars.Set(name, resolved);
+
+                        string strVal = _vars.Get(name)?.ToString() ?? _vars.GetString(name, string.Empty);
+                        _variableStore.Set(name, strVal, string.Equals(setVar.ValueSource, "Clipboard", StringComparison.OrdinalIgnoreCase) ? "Clipboard" : "Manual");
+                        OnLog($"    → VAR {name} = {_vars.Get(name)} [{op}]");
+                        FireVariablesUpdated();
+                        break;
+                    }
+
+                    case OcrRegionAction ocrRegion:
+                        await ExecuteOcrRegionAsync(ocrRegion, token).ConfigureAwait(false);
+                        break;
+
+                    case ClearVariableAction clearVar:
+                    {
+                        if (string.IsNullOrWhiteSpace(clearVar.VarName))
+                        { _variableStore.Clear(); OnLog("    → Xóa tất cả biến chuỗi {{…}} (VariableStore)"); }
+                        else
+                        { string n = clearVar.VarName.Trim(); _variableStore.Remove(n); _vars.Remove(n); OnLog($"    → Xóa biến '{n}'"); }
+                        break;
+                    }
+
+                    case LogVariableAction logVar:
+                    {
+                        string n = logVar.VarName.Trim();
+                        string v = _variableStore.Get(n, _vars.GetString(n, string.Empty));
+                        OnLog($"    → LOG VAR: {n} = {Truncate(v, 200)}");
+                        _runReport.AppendLine($"[{DateTime.Now:HH:mm:ss}] {n} = {v}");
+                        break;
+                    }
+
+                    case IfVariableAction ifVar:
+                    {
+                        string vn = ifVar.VarName.Trim();
+                        string left = _variableStore.Get(vn, _vars.GetString(vn, string.Empty));
+                        string right = ExpandRuntime(ifVar.Value);
+                        string cmp = (ifVar.CompareOp ?? "==").Trim();
+                        bool condResult = EvaluateCondition(left, cmp, right);
+                        OnLog($"    → IF {ifVar.VarName} {cmp} {right} → {condResult}");
+                        await ExecuteActionsAsync(condResult ? ifVar.ThenActions : ifVar.ElseActions, token).ConfigureAwait(false);
+                        break;
+                    }
+
+                    case LogAction log:
+                    {
+                        string msg = ExpandRuntime(log.Message);
+                        OnLog($"    → LOG: {msg}");
+                        _runReport.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
+                        break;
+                    }
+
+                    case TryCatchAction tryCatch:
+                    {
+                        try { await ExecuteActionsAsync(tryCatch.TryActions, token).ConfigureAwait(false); }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        { OnLog($"    → CATCH: {ex.Message} → running CatchActions"); _vars.Set("lastError", ex.Message); await ExecuteActionsAsync(tryCatch.CatchActions, token).ConfigureAwait(false); }
+                        break;
+                    }
+
+                    case TelegramAction tg:
+                        await ExecuteTelegramAsync(tg, token).ConfigureAwait(false);
+                        break;
+
+                    case CallMacroAction cma:
+                        await ExecuteCallMacroAsync(cma, token).ConfigureAwait(false);
+                        break;
+
+                    default:
+                        OnLog($"  [{idx}] Unknown action type: {action.GetType().Name}");
+                        break;
+                }
+
+                _macroRunner.Timing.NotifyMacroStepCompleted();
+                ActionCompleted?.Invoke(action, idx);
             }
             catch (OperationCanceledException)
             {
@@ -901,207 +1169,48 @@ public sealed class MacroEngine
             }
             catch (Exception ex)
             {
-                OnLog($"[Anti-Detection] ⚠ {ex.Message}");
-            }
+                int currentIdx = idx;
+                string actionName = action.DisplayName;
+                string errMsg = $"[{currentIdx}] {actionName}: {ex.Message}";
+                OnLog($"  ❌ {errMsg}");
 
-            ActionStarted?.Invoke(action, idx);
-
-            switch (action)
-            {
-                case LaunchAndBindAction launch:
-                    await ExecuteLaunchAndBindAsync(launch, token).ConfigureAwait(false);
-                    break;
-
-                case ClickAction click:
-                    EnsureDesktopTargetBound();
-                    await ExecuteClickAsync(click, token).ConfigureAwait(false);
-                    break;
-
-                case WaitAction wait:
-                    await ExecuteWaitAsync(wait, token);
-                    break;
-
-                case RepeatAction repeat:
-                    await ExecuteRepeatAsync(repeat, token).ConfigureAwait(false);
-                    break;
-
-                case TypeAction type:
-                    EnsureDesktopTargetBound();
-                    await ExecuteTypeAsync(type, token);
-                    break;
-
-                case KeyPressAction kpa:
-                    EnsureDesktopTargetBound();
-                    await ExecuteKeyPressAsync(kpa, token);
-                    break;
-
-                case IfImageAction ifImage:
-                    EnsureDesktopTargetBound();
-                    await ExecuteIfImageAsync(ifImage, token);
-                    break;
-
-                case IfTextAction ifText:
-                    EnsureDesktopTargetBound();
-                    await ExecuteIfTextAsync(ifText, token);
-                    break;
-
-                case WebAction webAction:
-                    await ExecuteWebActionAsync(
-                        ExpandRuntime(webAction.Url),
-                        ExpandRuntime(webAction.Selector),
-                        webAction.ActionType.ToString(),
-                        ExpandRuntime(webAction.TextToType),
-                        token);
-                    break;
-
-                case WebNavigateAction webNav:
-                    await ExecuteWebNavigateAsync(webNav, token);
-                    break;
-
-                case WebClickAction webClick:
-                    await ExecuteWebClickAsync(webClick, token);
-                    break;
-
-                case WebTypeAction webType:
-                    await ExecuteWebTypeAsync(webType, token);
-                    break;
-
-                case SystemAction sys:
-                    await ExecuteSystemActionAsync(sys, token).ConfigureAwait(false);
-                    break;
-
-                case SetVariableAction setVar:
+                if (AppSettings.Instance.ScreenshotOnError)
                 {
-                    string resolved;
-                    if (string.Equals(setVar.ValueSource, "Clipboard", StringComparison.OrdinalIgnoreCase))
+                    string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs", "errors");
+                    string? screenshotPath = ScreenshotHelper.CaptureWindow(_runtimeTargetHwnd, folder);
+
+                    if (screenshotPath != null)
                     {
-                        try
+                        string fileName = Path.GetFileName(screenshotPath);
+                        OnLog($"    📸 Screenshot saved: {fileName}");
+
+                        // Capture screenshot path in run record
+                        if (_currentRunRecord != null)
+                            _currentRunRecord.ScreenshotPath = screenshotPath;
+
+                        if (AppSettings.Instance.HasTelegramToken)
                         {
-                            resolved = WinForms.Clipboard.GetText() ?? string.Empty;
-                        }
-                        catch (Exception ex)
-                        {
-                            resolved = string.Empty;
-                            OnLog($"    ⚠ Clipboard: {ex.Message}");
+                            string caption = $"❌ <b>{_currentScript?.Name ?? "Macro"}</b>\n" +
+                                $"Bước {currentIdx + 1}: {actionName}\n" +
+                                $"Lỗi: <code>{Truncate(ex.Message, 100)}</code>\n" +
+                                $"🕐 {DateTime.Now:HH:mm:ss dd/MM/yyyy}";
+
+                            _ = Task.Run(async () =>
+                            {
+                                await TelegramService.SendPhotoAsync(
+                                    AppSettings.Instance.TelegramBotToken,
+                                    AppSettings.Instance.TelegramChatId,
+                                    screenshotPath,
+                                    caption,
+                                    onLog: msg => Log?.Invoke($"    {msg}"));
+                            });
                         }
                     }
-                    else
-                    {
-                        resolved = ExpandRuntime(setVar.Value);
-                    }
-
-                    string op = (setVar.Operation ?? "Set").Trim();
-                    string name = setVar.VarName.Trim();
-                    if (string.Equals(op, "Increment", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int amt = int.TryParse(resolved, NumberStyles.Integer, CultureInfo.InvariantCulture, out int ia)
-                            ? ia
-                            : 1;
-                        _vars.Increment(name, amt);
-                    }
-                    else if (string.Equals(op, "Decrement", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int amt = int.TryParse(resolved, NumberStyles.Integer, CultureInfo.InvariantCulture, out int da)
-                            ? da
-                            : 1;
-                        _vars.Increment(name, -amt);
-                    }
-                    else
-                    {
-                        _vars.Set(name, resolved);
-                    }
-
-                    string strVal = _vars.Get(name)?.ToString() ?? _vars.GetString(name, string.Empty);
-                    _variableStore.Set(name, strVal,
-                        string.Equals(setVar.ValueSource, "Clipboard", StringComparison.OrdinalIgnoreCase)
-                            ? "Clipboard"
-                            : "Manual");
-
-                    OnLog($"    → VAR {name} = {_vars.Get(name)} [{op}]");
-                    break;
+                    else { OnLog("    📸 Screenshot failed (window not accessible)"); }
                 }
 
-                case OcrRegionAction ocrRegion:
-                    await ExecuteOcrRegionAsync(ocrRegion, token).ConfigureAwait(false);
-                    break;
-
-                case ClearVariableAction clearVar:
-                {
-                    if (string.IsNullOrWhiteSpace(clearVar.VarName))
-                    {
-                        _variableStore.Clear();
-                        OnLog("    → Xóa tất cả biến chuỗi {{…}} (VariableStore)");
-                    }
-                    else
-                    {
-                        string n = clearVar.VarName.Trim();
-                        _variableStore.Remove(n);
-                        _vars.Remove(n);
-                        OnLog($"    → Xóa biến '{n}'");
-                    }
-
-                    break;
-                }
-
-                case LogVariableAction logVar:
-                {
-                    string n = logVar.VarName.Trim();
-                    string v = _variableStore.Get(n, _vars.GetString(n, string.Empty));
-                    OnLog($"    → LOG VAR: {n} = {Truncate(v, 200)}");
-                    _runReport.AppendLine($"[{DateTime.Now:HH:mm:ss}] {n} = {v}");
-                    break;
-                }
-
-                case IfVariableAction ifVar:
-                {
-                    string vn = ifVar.VarName.Trim();
-                    string left = _variableStore.Get(vn, _vars.GetString(vn, string.Empty));
-                    string right = ExpandRuntime(ifVar.Value);
-                    string cmp = (ifVar.CompareOp ?? "==").Trim();
-                    bool condResult = EvaluateCondition(left, cmp, right);
-                    OnLog($"    → IF {ifVar.VarName} {cmp} {right} → {condResult}");
-                    await ExecuteActionsAsync(condResult ? ifVar.ThenActions : ifVar.ElseActions, token)
-                        .ConfigureAwait(false);
-                    break;
-                }
-
-                case LogAction log:
-                {
-                    string msg = ExpandRuntime(log.Message);
-                    OnLog($"    → LOG: {msg}");
-                    _runReport.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
-                    break;
-                }
-
-                case TryCatchAction tryCatch:
-                    try
-                    {
-                        await ExecuteActionsAsync(tryCatch.TryActions, token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        OnLog($"    → CATCH: {ex.Message} → running CatchActions");
-                        _vars.Set("lastError", ex.Message);
-                        await ExecuteActionsAsync(tryCatch.CatchActions, token).ConfigureAwait(false);
-                    }
-
-                    break;
-
-                case TelegramAction tg:
-                    await ExecuteTelegramAsync(tg, token).ConfigureAwait(false);
-                    break;
-
-                default:
-                    OnLog($"  [{idx}] Unknown action type: {action.GetType().Name}");
-                    break;
+                OnLog("    → Continuing (ContinueOnError = true)");
             }
-
-            _macroRunner.Timing.NotifyMacroStepCompleted();
-            ActionCompleted?.Invoke(action, idx);
         }
     }
 
@@ -1138,6 +1247,7 @@ public sealed class MacroEngine
             _vars.Set(varName, text);
             _variableStore.Set(varName, text, "OCR");
             OnLog($"    → OCR ({Truncate(text, 80)})");
+            FireVariablesUpdated();
         }
         catch (OcrTimeoutException ex)
         {
@@ -1398,48 +1508,199 @@ public sealed class MacroEngine
             : "";
 
         string text = ExpandRuntime(type.Text);
-        OnLog($"  TypeText \"{Truncate(text, 40)}\" (delay={type.KeyDelayMs}ms){suffix}");
-
-        var ad = AppSettings.Load();
-        bool scanHardware = HardwareMode && ad.AntiDetectionEnabled && ad.AntiDetectionUseScanCodeTyping;
-
-        if (scanHardware)
+        if (string.IsNullOrEmpty(text))
         {
-            foreach (char c in text)
-            {
-                token.ThrowIfCancellationRequested();
-                try
-                {
-                    if (!InputSpoofingService.TrySendCharHardware(c))
-                        Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
-                }
-                catch (Exception ex)
-                {
-                    OnLog($"    ⚠ Scan-type fallback: {ex.Message}");
-                    Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
-                }
-
-                int baseD = type.KeyDelayMs > 0 ? type.KeyDelayMs : Random.Shared.Next(40, 121);
-                await _macroRunner.Timing.WaitAsync(baseD, Math.Max(8, baseD / 2), token).ConfigureAwait(false);
-            }
-
+            OnLog("  TypeText — bỏ qua (text trống)");
             return;
         }
 
-        if (type.KeyDelayMs <= 0)
+        if (type.InputMethod == TypeInputMethod.Clipboard || type.KeyDelayMs <= 0)
         {
-            Win32Api.ControlSendText(target, text);
+            await TypeViaClipboardAsync(target, text, token);
         }
         else
         {
-            foreach (char c in text)
-            {
-                token.ThrowIfCancellationRequested();
-                Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
-                await _macroRunner.Timing.WaitAsync(type.KeyDelayMs, Math.Max(5, type.KeyDelayMs / 2), token)
-                    .ConfigureAwait(false);
-            }
+            await TypeViaWmCharAsync(target, text, type.KeyDelayMs, token);
         }
+
+        OnLog($"  TypeText \"{Truncate(text, 40)}\"{suffix}");
+    }
+
+    private async Task TypeViaClipboardAsync(IntPtr target, string text, CancellationToken token)
+    {
+        string? prev = null;
+
+        await WpfApp.Current.Dispatcher.InvokeAsync(() =>
+        {
+            try { prev = System.Windows.Clipboard.GetText(); } catch { }
+            System.Windows.Clipboard.SetText(text);
+        });
+
+        await Task.Delay(100, token);
+
+        Win32Api.PostMessage(target, 0x0302, IntPtr.Zero, IntPtr.Zero);
+
+        await Task.Delay(150, token);
+
+        await WpfApp.Current.Dispatcher.InvokeAsync(() =>
+        {
+            try
+            {
+                if (prev != null)
+                    System.Windows.Clipboard.SetText(prev);
+                else
+                    System.Windows.Clipboard.Clear();
+            }
+            catch { }
+        });
+
+        OnLog($"    → Clipboard paste: {text.Length} ký tự");
+    }
+
+    private async Task TypeViaWmCharAsync(IntPtr target, string text, int delayMs, CancellationToken token)
+    {
+        foreach (char c in text)
+        {
+            token.ThrowIfCancellationRequested();
+            Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
+            await Task.Delay(Math.Max(delayMs, 30), token);
+        }
+        OnLog($"    → WM_CHAR: {text.Length} ký tự (delay={delayMs}ms)");
+    }
+
+    // ═══════════════════════════════════════════════
+    //  SENDINPUT KEY PRESS (for Chrome, Electron, games)
+    // ═══════════════════════════════════════════════
+
+    private async Task ExecuteKeyPressSendInputAsync(KeyPressAction kpa, IntPtr hwnd, CancellationToken token)
+    {
+        IntPtr prevForeground = GetForegroundWindow();
+
+        // Bring target window to foreground
+        if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        ShowWindow(hwnd, SW_SHOW);
+        SetForegroundWindow(hwnd);
+        await Task.Delay(150, token);
+
+        var inputs = new List<INPUT>();
+
+        void AddKey(ushort vk, bool keyUp)
+        {
+            uint scanCode = MapVirtualKey(vk, 0);
+            inputs.Add(new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = vk,
+                        wScan = (ushort)scanCode,
+                        dwFlags = (keyUp ? KEYEVENTF_KEYUP : 0) | KEYEVENTF_SCANCODE,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            });
+        }
+
+        // Modifiers down
+        if (kpa.Modifiers.Shift) AddKey(0x10, false);
+        if (kpa.Modifiers.Ctrl) AddKey(0x11, false);
+        if (kpa.Modifiers.Alt) AddKey(0x12, false);
+
+        // Main key down + up
+        AddKey((ushort)kpa.VirtualKeyCode, false);
+        await Task.Delay(Math.Max(kpa.HoldDurationMs, 50), token);
+        AddKey((ushort)kpa.VirtualKeyCode, true);
+
+        // Modifiers up (reverse)
+        if (kpa.Modifiers.Alt) AddKey(0x12, true);
+        if (kpa.Modifiers.Ctrl) AddKey(0x11, true);
+        if (kpa.Modifiers.Shift) AddKey(0x10, true);
+
+        var inputArr = inputs.ToArray();
+        SendInput((uint)inputArr.Length, inputArr, Marshal.SizeOf<INPUT>());
+
+        await Task.Delay(100, token);
+
+        // Restore previous foreground
+        if (prevForeground != IntPtr.Zero && prevForeground != hwnd)
+            SetForegroundWindow(prevForeground);
+
+        OnLog($"  KeyPress/SendInput {kpa.KeyName}");
+    }
+
+    /// <summary>
+    /// Raw Input mode: sends pure scan codes via SendInput for DirectX/Anti-Cheat games.
+    /// Brings target window to foreground and uses KEYEVENTF_SCANCODE only (wVk = 0).
+    /// </summary>
+    private async Task ExecuteKeyPressRawInputAsync(KeyPressAction kpa, IntPtr hwnd, CancellationToken token)
+    {
+        IntPtr prevForeground = GetForegroundWindow();
+
+        // Bring window to foreground for DirectX initialization
+        if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        ShowWindow(hwnd, SW_SHOW);
+        SetForegroundWindow(hwnd);
+        await Task.Delay(200, token);
+
+        var inputs = new List<INPUT>();
+
+        void AddScanCode(int vk, bool keyUp)
+        {
+            uint sc = MapVirtualKey((uint)vk, 0);
+
+            // Extended key check for certain VK codes
+            bool isExtended = vk is 0x21 or 0x22 or 0x23 or 0x24 or
+                                  0x25 or 0x26 or 0x27 or 0x28 or
+                                  0x2D or 0x2E or 0xA1 or 0xA3 or 0xA5;
+
+            uint flags = KEYEVENTF_SCANCODE;
+            if (keyUp) flags |= KEYEVENTF_KEYUP;
+            if (isExtended) flags |= 0x0001; // KEYEVENTF_EXTENDEDKEY
+
+            inputs.Add(new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wVk = 0, // MUST be 0 for raw scan code
+                        wScan = (ushort)sc,
+                        dwFlags = flags,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            });
+        }
+
+        // Modifiers down (scan codes only)
+        if (kpa.Modifiers.Shift) AddScanCode(0x10, false);
+        if (kpa.Modifiers.Ctrl) AddScanCode(0x11, false);
+        if (kpa.Modifiers.Alt) AddScanCode(0x12, false);
+
+        // Main key down + up
+        AddScanCode(kpa.VirtualKeyCode, false);
+        await Task.Delay(Math.Max(kpa.HoldDurationMs, 50), token);
+        AddScanCode(kpa.VirtualKeyCode, true);
+
+        // Modifiers up (reverse)
+        if (kpa.Modifiers.Alt) AddScanCode(0x12, true);
+        if (kpa.Modifiers.Ctrl) AddScanCode(0x11, true);
+        if (kpa.Modifiers.Shift) AddScanCode(0x10, true);
+
+        var arr = inputs.ToArray();
+        SendInput((uint)arr.Length, arr, Marshal.SizeOf<INPUT>());
+
+        OnLog($"[KeyPress/RawInput] {kpa.KeyName} SC=0x{MapVirtualKey((uint)kpa.VirtualKeyCode, 0):X2}");
+
+        // Restore previous foreground
+        await Task.Delay(100, token);
+        if (prevForeground != IntPtr.Zero && prevForeground != hwnd)
+            SetForegroundWindow(prevForeground);
     }
 
     private async Task ExecuteKeyPressAsync(KeyPressAction kpa, CancellationToken token)
@@ -1454,6 +1715,20 @@ public sealed class MacroEngine
         IntPtr target = Win32Api.FindInputChild(hwnd);
         int vk = kpa.VirtualKeyCode;
         int hold = Math.Max(0, kpa.HoldDurationMs);
+
+        // ── DISPATCH BY INPUT MODE ────────────────────────────────────────────
+        switch (kpa.InputMode)
+        {
+            case KeyInputMode.RawInput:
+                await ExecuteKeyPressRawInputAsync(kpa, hwnd, token);
+                return;
+            case KeyInputMode.SendInput:
+                await ExecuteKeyPressSendInputAsync(kpa, hwnd, token);
+                return;
+            default:
+                // KeyInputMode.Auto — fall through to PostMessage path
+                break;
+        }
 
         // ── PATH 1: Printable character ──────────────────────────────────────
         // TryGetPrintableChar handles Shift+2 → '@', Shift+a → 'A', etc.
@@ -2092,6 +2367,140 @@ public sealed class MacroEngine
                 Log?.Invoke($"[Telegram] Gửi thông báo thất bại: {ex.Message}");
             }
         });
+    }
+
+    // ═══════════════════════════════════════════════
+    //  SENDINPUT (for Chrome, Electron, DirectX games)
+    // ═══════════════════════════════════════════════
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern short VkKeyScan(char ch);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public INPUTUNION u;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
+    {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public HARDWAREINPUT hi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx, dy;
+        public uint mouseData, dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HARDWAREINPUT
+    {
+        public uint uMsg;
+        public ushort wParamL, wParamH;
+    }
+
+    private const uint INPUT_KEYBOARD = 1;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_SCANCODE = 0x0008;
+    private const int SW_SHOW = 5;
+    private const int SW_RESTORE = 9;
+
+    // ═══════════════════════════════════════════════
+    //  SUB-MACRO (CallMacroAction)
+    // ═══════════════════════════════════════════════
+
+    private async Task ExecuteCallMacroAsync(CallMacroAction cma, CancellationToken token)
+    {
+        // Guard: prevent infinite recursion from deep nesting
+        if (_subMacroDepth >= MaxSubMacroDepth)
+        {
+            OnLog($"  [Sub-macro] ❌ Đệ quy quá sâu ({_subMacroDepth} tầng) — " +
+                  "phát hiện vòng lặp vô tận! Dừng để bảo vệ bộ nhớ.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(cma.MacroFilePath))
+        {
+            OnLog("  [Sub-macro] ❌ Chưa chọn kịch bản con");
+            return;
+        }
+
+        string resolvedPath = VariableResolver.Resolve(cma.MacroFilePath, _runtimeVariables);
+        if (!File.Exists(resolvedPath))
+        {
+            OnLog($"  [Sub-macro] ❌ Không tìm thấy file: {resolvedPath}");
+            return;
+        }
+
+        // Guard: prevent calling itself
+        if (_currentScript?.FilePath != null &&
+            Path.GetFullPath(resolvedPath) == Path.GetFullPath(_currentScript.FilePath))
+        {
+            OnLog($"  [Sub-macro] ❌ Macro không thể tự gọi chính nó!");
+            return;
+        }
+
+        var subScript = ScriptManager.Load(resolvedPath);
+        if (subScript == null)
+        {
+            OnLog($"  [Sub-macro] ❌ Không đọc được: {resolvedPath}");
+            return;
+        }
+
+        OnLog($"  [Sub-macro] ▶ Tầng {_subMacroDepth + 1}/{MaxSubMacroDepth}: {cma.MacroName ?? subScript.Name}");
+
+        var subEngine = new MacroEngine(this, subScript, _runtimeTargetHwnd, Log);
+
+        if (cma.PassVariables)
+        {
+            foreach (var kv in _runtimeVariables)
+            {
+                subEngine.Variables.Set(kv.Key, kv.Value, "Parent");
+            }
+        }
+
+        if (cma.WaitForFinish)
+        {
+            await subEngine.ExecuteScriptAsync(subScript, _runtimeTargetHwnd, token).ConfigureAwait(false);
+            OnLog($"  [Sub-macro] ✅ Hoàn thành tầng {_subMacroDepth + 1}: {cma.MacroName ?? subScript.Name}");
+        }
+        else
+        {
+            _ = subEngine.ExecuteScriptAsync(subScript, _runtimeTargetHwnd, token);
+            OnLog($"  [Sub-macro] 🚀 Đã khởi động (song song): {cma.MacroName ?? subScript.Name}");
+        }
     }
 
     // ═══════════════════════════════════════════════

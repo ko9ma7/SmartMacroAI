@@ -91,6 +91,11 @@ public sealed class AppSettings
         !string.IsNullOrWhiteSpace(TelegramBotToken) &&
         !string.IsNullOrWhiteSpace(TelegramChatId);
 
+    // ── Error Handling ──
+
+    /// <summary>When true, captures a screenshot and sends via Telegram when a macro step fails.</summary>
+    public bool ScreenshotOnError { get; set; } = true;
+
     private static readonly string PathFile = Path.Combine(
         AppDomain.CurrentDomain.BaseDirectory, "app_settings.json");
 

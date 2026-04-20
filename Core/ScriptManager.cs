@@ -79,7 +79,9 @@ public static class ScriptManager
 
         string json = await File.ReadAllTextAsync(filePath);
         json = ApplyLegacyWaitJsonPatches(json);
-        return JsonSerializer.Deserialize<MacroScript>(json, JsonOptions);
+        var script = JsonSerializer.Deserialize<MacroScript>(json, JsonOptions);
+        if (script != null) script.FilePath = Path.GetFullPath(filePath);
+        return script;
     }
 
     /// <summary>
@@ -92,7 +94,9 @@ public static class ScriptManager
 
         string json = File.ReadAllText(filePath);
         json = ApplyLegacyWaitJsonPatches(json);
-        return JsonSerializer.Deserialize<MacroScript>(json, JsonOptions);
+        var script = JsonSerializer.Deserialize<MacroScript>(json, JsonOptions);
+        if (script != null) script.FilePath = Path.GetFullPath(filePath);
+        return script;
     }
 
     /// <summary>

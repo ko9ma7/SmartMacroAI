@@ -196,7 +196,7 @@
     <system:String x:Key="ui_MouseSettings_PreviewTitle">Xem trước đường đi</system:String>
     <system:String x:Key="ui_Toast_MouseSettingsSaved">Đã lưu cài đặt chuột.</system:String>
 
-    <system:String x:Key="ui_About_Tagline">v1.3.0 — Công cụ tự động RPA</system:String>
+    <system:String x:Key="ui_About_Tagline">v1.4.0 — Công cụ tự động RPA</system:String>
     <system:String x:Key="ui_About_Description">Tự động hóa không chiếm chuột/bàn phím vật lý trên Windows 10/11. Dùng Win32 API để gửi click và phím tới cửa sổ nền.</system:String>
     <system:String x:Key="ui_About_TechStack">Công nghệ</system:String>
     <system:String x:Key="ui_About_TechLine">.NET 8.0  |  WPF  |  Win32 API  |  Emgu.CV (OpenCV)  |  Tesseract OCR</system:String>
@@ -204,7 +204,7 @@
     <system:String x:Key="ui_About_Contact">Liên hệ hỗ trợ</system:String>
     <system:String x:Key="ui_About_CheckUpdates">🔄 Kiểm tra cập nhật</system:String>
     <system:String x:Key="ui_About_UpdatesTitle">Cập nhật phần mềm</system:String>
-    <system:String x:Key="ui_About_CurrentVersion">Phiên bản hiện tại: v1.3.0</system:String>
+    <system:String x:Key="ui_About_CurrentVersion">Phiên bản hiện tại: v1.4.0</system:String>
     <system:String x:Key="ui_Coffee_Title">☕ Mời cà phê</system:String>
     <system:String x:Key="ui_Coffee_Blurb">Mời tác giả một ly cà phê nếu phần mềm này giúp ích cho bạn!</system:String>
     <system:String x:Key="ui_Bank_Line">MB Bank — PHAM QUOC DUY — 379997999</system:String>
@@ -214,10 +214,13 @@
     <system:String x:Key="ui_LogConsole">NHẬT KÝ</system:String>
     <system:String x:Key="ui_Log_Clear">Xóa</system:String>
 
-    <system:String x:Key="ui_Footer_Runtime">SmartMacroAI v1.3.0</system:String>
+    <system:String x:Key="ui_Footer_Runtime">SmartMacroAI v1.4.0</system:String>
     <system:String x:Key="ui_Footer_DotNet">.NET 8.0</system:String>
     <system:String x:Key="ui_Footer_Sep"> | </system:String>
     <system:String x:Key="ui_Footer_Credit">Tác giả Phạm Duy - Giải pháp tự động hóa thông minh.</system:String>
+
+    <system:String x:Key="ui_About_HelpLink">📖 Hướng dẫn sử dụng</system:String>
+    <system:String x:Key="ui_About_HelpUrl">https://docs.google.com/document/d/1fPH10XH0uxDuGzSnO5pvFBh7JTf1s2yY6jHQ30CM8Cs/edit?usp=sharing</system:String>
 
     <system:String x:Key="ui_Toast_SelectHotkeys">Vui lòng chọn đủ các ô phím tắt.</system:String>
     <system:String x:Key="ui_Toast_HotkeysSavedFmt">Đã lưu phím tắt: App={0}, Target={1}</system:String>

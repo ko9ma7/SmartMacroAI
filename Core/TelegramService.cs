@@ -1,6 +1,7 @@
 // Created by Phạm Duy – Giải pháp tự động hóa thông minh.
 
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -125,5 +126,72 @@ public static class TelegramService
             .Replace("<", "&lt;")
             .Replace(">", "&gt;")
             .Replace("\"", "&quot;");
+    }
+
+    /// <summary>
+    /// Sends a photo with optional HTML caption to the specified Telegram chat.
+    /// Errors are logged but never thrown.
+    /// </summary>
+    public static async Task<bool> SendPhotoAsync(
+        string botToken,
+        string chatId,
+        string imagePath,
+        string caption = "",
+        Action<string>? onLog = null)
+    {
+        if (string.IsNullOrWhiteSpace(botToken) || string.IsNullOrWhiteSpace(chatId))
+        {
+            onLog?.Invoke("[Telegram] BotToken hoặc ChatId trống — bỏ qua gửi ảnh.");
+            return false;
+        }
+
+        if (!File.Exists(imagePath))
+        {
+            onLog?.Invoke($"[Telegram] File ảnh không tồn tại: {imagePath}");
+            return false;
+        }
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+
+            using var content = new MultipartFormDataContent();
+
+            content.Add(new StringContent(chatId.Trim()), "chat_id");
+
+            if (!string.IsNullOrEmpty(caption))
+            {
+                content.Add(new StringContent(caption), "caption");
+                content.Add(new StringContent("HTML"), "parse_mode");
+            }
+
+            using var stream = File.OpenRead(imagePath);
+            var streamContent = new StreamContent(stream);
+            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            content.Add(streamContent, "photo", Path.GetFileName(imagePath));
+
+            string url = $"https://api.telegram.org/bot{botToken.Trim()}/sendPhoto";
+
+            HttpResponseMessage response = await http.PostAsync(url, content)
+                .ConfigureAwait(false);
+
+            string responseBody = await response.Content.ReadAsStringAsync()
+                .ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                onLog?.Invoke($"[Telegram] Đã gửi ảnh thành công → {chatId}");
+                return true;
+            }
+
+            string error = ExtractTelegramError(responseBody) ?? $"HTTP {response.StatusCode}";
+            onLog?.Invoke($"[Telegram] Lỗi gửi ảnh: {error}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            onLog?.Invoke($"[Telegram] Lỗi gửi ảnh: {ex.Message}");
+            return false;
+        }
     }
 }

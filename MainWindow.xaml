@@ -338,6 +338,129 @@
                     </Menu>
 
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <!-- Notification Bell -->
+                        <Button x:Name="BtnNotifications"
+                                Click="BtnNotifications_Click"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="8,4"
+                                ToolTip="Thông báo"
+                                Margin="0,0,8,0"
+                                Width="36" Height="32">
+                            <Grid>
+                                <TextBlock Text="🔔" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <!-- Unread badge -->
+                                <Border x:Name="NotificationBadge"
+                                        Background="#F38BA8"
+                                        CornerRadius="8"
+                                        MinWidth="16" Height="16"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Margin="0,-4,-4,0"
+                                        Visibility="Collapsed">
+                                    <TextBlock x:Name="TxtBadgeCount"
+                                               Foreground="White" FontSize="9"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontWeight="Bold"/>
+                                </Border>
+                            </Grid>
+                        </Button>
+
+                        <!-- Notification Popup -->
+                        <Popup x:Name="NotificationPopup"
+                               PlacementTarget="{Binding ElementName=BtnNotifications}"
+                               Placement="Bottom" StaysOpen="False"
+                               Width="340">
+                            <Border Background="#1E1E2E"
+                                    BorderBrush="#313244" BorderThickness="1"
+                                    CornerRadius="8">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*" MaxHeight="400"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Header -->
+                                    <Border Grid.Row="0" Background="#181825" Margin="0,0,0,1" CornerRadius="8,8,0,0">
+                                        <Grid Margin="12,8">
+                                            <TextBlock Text="🔔 Thông báo"
+                                                       Foreground="#CDD6F4" FontSize="13"
+                                                       FontWeight="Bold"/>
+                                            <Button Content="Đọc tất cả"
+                                                    Click="BtnMarkAllRead_Click"
+                                                    HorizontalAlignment="Right"
+                                                    FontSize="11"
+                                                    Background="Transparent"
+                                                    Foreground="#89B4FA"
+                                                    BorderThickness="0"
+                                                    Cursor="Hand"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- Notification list -->
+                                    <ScrollViewer Grid.Row="1"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  MaxHeight="350">
+                                        <ItemsControl x:Name="NotificationList">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Padding="12,8"
+                                                            BorderBrush="#313244"
+                                                            BorderThickness="0,0,0,1"
+                                                            Background="#1E1E2E">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="28"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <TextBlock Grid.Column="0"
+                                                                       Text="{Binding TypeIcon}"
+                                                                       FontSize="14"
+                                                                       VerticalAlignment="Top"
+                                                                       Margin="0,0,0,0"/>
+                                                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                                <TextBlock Text="{Binding Title}"
+                                                                           Foreground="#CDD6F4"
+                                                                           FontSize="12"
+                                                                           FontWeight="SemiBold"/>
+                                                                <TextBlock Text="{Binding Message}"
+                                                                           Foreground="#A6ADC8"
+                                                                           FontSize="11"
+                                                                           TextWrapping="Wrap"
+                                                                           Margin="0,2,0,0"/>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="2"
+                                                                       Text="{Binding TimeAgo}"
+                                                                       Foreground="#6C7086"
+                                                                       FontSize="10"
+                                                                       VerticalAlignment="Top"
+                                                                       Margin="8,0,0,0"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+
+                                    <!-- Footer -->
+                                    <Border Grid.Row="2" Background="#181825" Padding="8" CornerRadius="0,0,8,8">
+                                        <Button Content="Xóa tất cả thông báo"
+                                                Click="BtnClearNotifications_Click"
+                                                HorizontalAlignment="Center"
+                                                FontSize="11"
+                                                Background="Transparent"
+                                                Foreground="#F38BA8"
+                                                BorderThickness="0"
+                                                Cursor="Hand"/>
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </Popup>
+
                         <Border Background="{StaticResource Surface0Brush}" CornerRadius="0" Padding="8,4" Margin="0,0,8,0">
                             <StackPanel Orientation="Horizontal">
                                 <Ellipse Width="8" Height="8" Margin="0,0,8,0">
@@ -394,12 +517,31 @@
                             </Border>
                         </UniformGrid>
 
+                        <!-- Scheduled Macros Info Bar -->
+                        <Border Grid.Row="0" Background="#1A2A1A" BorderBrush="#A6E3A1" BorderThickness="0,0,0,1"
+                                Margin="0,0,0,8" Padding="12,8">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⏰ " Foreground="#A6E3A1" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtScheduledCount" Foreground="#A6E3A1" FontSize="13"
+                                           Text="0 macro đã lên lịch" VerticalAlignment="Center"/>
+                                <TextBlock Text="  |  " Foreground="#6C7086" FontSize="13" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock x:Name="TxtRunningCount" Foreground="#CDD6F4" FontSize="13"
+                                           Text="0 macro đang chạy" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
                         <!-- DataGrid Multi-tasking Hub -->
                         <Border Grid.Row="1" Style="{StaticResource CardStyle}" Margin="0" Padding="0">
                             <DockPanel>
                                 <DockPanel DockPanel.Dock="Top" Margin="8,8,8,6">
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                         <Button Style="{StaticResource DangerButtonStyle}" Content="{DynamicResource ui_StopAll}" Click="BtnStopAllMacros_Click" Padding="12,6" FontSize="11" Margin="0,0,6,0" />
+                                        <Button Click="BtnGlobalHistory_Click" Padding="12,6" FontSize="11" Margin="0,0,6,0" Background="#45475A" Foreground="#CDD6F4" BorderThickness="0" Cursor="Hand">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="📊" Margin="0,0,4,0"/>
+                                                <TextBlock Text="Lịch sử"/>
+                                            </StackPanel>
+                                        </Button>
                                         <Button Style="{StaticResource PrimaryButtonStyle}" Content="{DynamicResource ui_Refresh}" Click="BtnRefreshDashboard_Click" Padding="12,6" FontSize="11" />
                                     </StackPanel>
                                     <TextBlock Text="{DynamicResource ui_Dashboard_HubTitle}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
@@ -411,20 +553,22 @@
                                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                                Margin="0,40,0,0" Visibility="Collapsed" />
                                     <DataGrid x:Name="DashboardGrid"
+                                              MinHeight="150"
                                               AutoGenerateColumns="False"
                                               CanUserAddRows="False" CanUserDeleteRows="False"
                                               CanUserReorderColumns="False" CanUserSortColumns="False"
+                                              CanUserResizeColumns="True"
                                               IsReadOnly="True"
                                               SelectionMode="Single" SelectionUnit="FullRow"
                                               HeadersVisibility="Column"
                                               GridLinesVisibility="Horizontal"
                                               HorizontalGridLinesBrush="{StaticResource Surface1Brush}"
                                               Background="{StaticResource BaseBrush}"
-                                              RowBackground="#1E1E2E"
-                                              AlternatingRowBackground="#21213A"
+                                              RowBackground="#181825"
+                                              AlternatingRowBackground="#1E1E2E"
                                               BorderThickness="0"
-                                              ColumnHeaderHeight="36"
-                                              RowHeight="48"
+                                              ColumnHeaderHeight="32"
+                                              RowHeight="58"
                                               VerticalScrollBarVisibility="Auto"
                                               HorizontalScrollBarVisibility="Disabled">
 
@@ -434,7 +578,7 @@
                                                 <Setter Property="Foreground" Value="{StaticResource SubtextBrush}" />
                                                 <Setter Property="FontWeight" Value="SemiBold" />
                                                 <Setter Property="FontSize" Value="11" />
-                                                <Setter Property="Padding" Value="10,8" />
+                                                <Setter Property="Padding" Value="8,6" />
                                                 <Setter Property="BorderBrush" Value="{StaticResource Surface1Brush}" />
                                                 <Setter Property="BorderThickness" Value="0,0,1,1" />
                                             </Style>
@@ -463,7 +607,7 @@
                                                 <Setter Property="Template">
                                                     <Setter.Value>
                                                         <ControlTemplate TargetType="DataGridCell">
-                                                            <ContentPresenter VerticalAlignment="Center" Margin="6,4" />
+                                                            <ContentPresenter VerticalAlignment="Center" Margin="4,0" />
                                                         </ControlTemplate>
                                                     </Setter.Value>
                                                 </Setter>
@@ -471,28 +615,42 @@
                                         </DataGrid.CellStyle>
 
                                         <DataGrid.Columns>
-                                            <!-- Tên kịch bản -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_MacroName}" Width="*">
+
+                                            <!-- Col 1: Tên macro — flexible, always visible -->
+                                            <DataGridTemplateColumn Header="Tên kịch bản" Width="*" MinWidth="140">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
-                                                        <DockPanel VerticalAlignment="Center" LastChildFill="True">
-                                                            <Button DockPanel.Dock="Right" Content="✎" Click="DashboardRename_Click"
-                                                                    ToolTip="{DynamicResource ui_Tooltip_RenameMacro}"
-                                                                    Style="{StaticResource PrimaryButtonStyle}"
-                                                                    Background="#45475A" Foreground="#CDD6F4"
-                                                                    FontSize="12" Padding="8,4" Margin="8,0,0,0"
-                                                                    VerticalAlignment="Center" />
-                                                            <StackPanel VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding MacroName}" FontWeight="SemiBold" FontSize="12" Foreground="#CDD6F4" />
-                                                                <TextBlock Text="{Binding ActionCount, Converter={StaticResource ActionCountFmtConverter}}" FontSize="10" Foreground="#6C7086" />
+                                                        <Grid Margin="4,0">
+                                                            <!-- Display mode -->
+                                                            <StackPanel Visibility="{Binding IsNotEditing, Converter={StaticResource BoolToVis}}">
+                                                                <TextBlock Text="{Binding MacroName}"
+                                                                           Foreground="#CDD6F4" FontSize="13" FontWeight="SemiBold"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTip="Double-click để đổi tên"
+                                                                           MouseLeftButtonDown="MacroName_DoubleClick"/>
+                                                                <TextBlock Foreground="#6C7086" FontSize="10">
+                                                                    <Run Text="{Binding ActionCount, Mode=OneWay}"/>
+                                                                    <Run Text=" thao tác"/>
+                                                                </TextBlock>
                                                             </StackPanel>
-                                                        </DockPanel>
+
+                                                            <!-- Edit mode -->
+                                                            <TextBox x:Name="TxtRename"
+                                                                     Text="{Binding MacroName, UpdateSourceTrigger=PropertyChanged}"
+                                                                     Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}"
+                                                                     Background="#313244" Foreground="#CDD6F4"
+                                                                     BorderBrush="#89B4FA" BorderThickness="1"
+                                                                     Padding="6,4" FontSize="13"
+                                                                     Margin="0"
+                                                                     LostFocus="TxtRename_LostFocus"
+                                                                     KeyDown="TxtRename_KeyDown"/>
+                                                        </Grid>
                                                     </DataTemplate>
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
 
-                                            <!-- Cửa sổ mục tiêu + Identify -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_TargetWindow}" Width="260">
+                                            <!-- Col 2: Cửa sổ mục tiêu — fixed width -->
+                                            <DataGridTemplateColumn Header="Cửa sổ mục tiêu" Width="180" MinWidth="120">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <DockPanel>
@@ -500,11 +658,11 @@
                                                                     ToolTip="{DynamicResource ui_Tooltip_FlashWindow}"
                                                                     Style="{StaticResource PrimaryButtonStyle}"
                                                                     Background="#45475A" Foreground="#CDD6F4"
-                                                                    FontSize="12" Padding="6,2" Margin="4,0,0,0" />
+                                                                    FontSize="11" Padding="4,2" Margin="2,0,0,0" />
                                                             <ComboBox Text="{Binding TargetWindow, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
                                                                       IsEditable="True" FontSize="10"
                                                                       Style="{StaticResource DarkComboBoxStyle}"
-                                                                      Margin="2"
+                                                                      Margin="2,0"
                                                                       DropDownOpened="DashRowWindowCombo_DropDownOpened"
                                                                       SelectionChanged="DashRowWindowCombo_SelectionChanged" />
                                                         </DockPanel>
@@ -512,130 +670,87 @@
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
 
-                                            <!-- Stealth Mode -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_Stealth}" Width="55">
+                                            <!-- Col 3: Chế độ — Stealth + HW icon toggles -->
+                                            <DataGridTemplateColumn Header="Chế độ" Width="70" MinWidth="70">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
-                                                        <CheckBox IsChecked="{Binding StealthMode, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
-                                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                  ToolTip="{DynamicResource ui_Tooltip_StealthRun}" />
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                            <ToggleButton Content="👁" Width="30" Height="26"
+                                                                          IsChecked="{Binding StealthMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                          ToolTip="Stealth Mode"
+                                                                          Margin="1,0" FontSize="11"/>
+                                                            <ToggleButton Content="⚡" Width="30" Height="26"
+                                                                          IsChecked="{Binding HardwareMode, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                          ToolTip="Hardware Mode"
+                                                                          Margin="1,0" FontSize="11"/>
+                                                        </StackPanel>
                                                     </DataTemplate>
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
 
-                                            <!-- Hardware Mode (DirectInput bypass) -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_HW}" Width="42">
+                                            <!-- Col 4: Lặp / Giãn cách — compact inputs -->
+                                            <DataGridTemplateColumn Header="Lặp / Giãn(phút)" Width="110" MinWidth="100">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
-                                                        <CheckBox IsChecked="{Binding HardwareMode, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
-                                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                  ToolTip="{DynamicResource ui_Tooltip_HWMode}" />
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                            <TextBox Text="{Binding RunCount, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"
+                                                                     Width="40" FontSize="12" TextAlignment="Center"
+                                                                     Background="#313244" Foreground="#CDD6F4"
+                                                                     BorderBrush="#45475A" BorderThickness="1"
+                                                                     Padding="2,1" Margin="1,0"
+                                                                     ToolTip="Số lần lặp"/>
+                                                            <TextBlock Text="/" Foreground="#6C7086"
+                                                                       VerticalAlignment="Center" Margin="2,0"/>
+                                                            <TextBox Text="{Binding IntervalMinutes, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"
+                                                                     Width="40" FontSize="12" TextAlignment="Center"
+                                                                     Background="#313244" Foreground="#CDD6F4"
+                                                                     BorderBrush="#45475A" BorderThickness="1"
+                                                                     Padding="2,1" Margin="1,0"
+                                                                     ToolTip="Giãn cách (phút)"/>
+                                                        </StackPanel>
                                                     </DataTemplate>
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
 
-                                            <!-- Số lần chạy -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_RunCount}" Width="85">
+                                            <!-- Col 5: Trạng thái + Lịch — combined -->
+                                            <DataGridTemplateColumn Header="Trạng thái" Width="130" MinWidth="110">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
-                                                        <TextBox Text="{Binding RunCount, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"
-                                                                 FontSize="11" TextAlignment="Center"
-                                                                 Background="#313244" Foreground="#CDD6F4"
-                                                                 BorderThickness="1" BorderBrush="#45475A"
-                                                                 Padding="4,3" Margin="2"
-                                                                 ToolTip="{DynamicResource ui_Tooltip_RunCount}" />
-                                                    </DataTemplate>
-                                                </DataGridTemplateColumn.CellTemplate>
-                                            </DataGridTemplateColumn>
-
-                                            <!-- Giãn cách -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_Interval}" Width="100">
-                                                <DataGridTemplateColumn.CellTemplate>
-                                                    <DataTemplate>
-                                                        <TextBox Text="{Binding IntervalMinutes, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"
-                                                                 FontSize="11" TextAlignment="Center"
-                                                                 Background="#313244" Foreground="#CDD6F4"
-                                                                 BorderThickness="1" BorderBrush="#45475A"
-                                                                 Padding="4,3" Margin="2"
-                                                                 ToolTip="{DynamicResource ui_Tooltip_Interval}" />
-                                                    </DataTemplate>
-                                                </DataGridTemplateColumn.CellTemplate>
-                                            </DataGridTemplateColumn>
-
-                                            <!-- Trạng thái -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_Status}" Width="100">
-                                                <DataGridTemplateColumn.CellTemplate>
-                                                    <DataTemplate>
-                                                        <TextBlock Text="{Binding Status, Converter={StaticResource StatusLocConverter}}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="TextBlock">
-                                                                    <Setter Property="Foreground" Value="#A6E3A1" />
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding Status}" Value="Running">
-                                                                            <Setter Property="Foreground" Value="#F9E2AF" />
-                                                                        </DataTrigger>
-                                                                        <DataTrigger Binding="{Binding Status}" Value="Waiting">
-                                                                            <Setter Property="Foreground" Value="#89B4FA" />
-                                                                        </DataTrigger>
-                                                                        <DataTrigger Binding="{Binding Status}" Value="Stopped">
-                                                                            <Setter Property="Foreground" Value="#F38BA8" />
-                                                                        </DataTrigger>
-                                                                        <DataTrigger Binding="{Binding Status}" Value="Error">
-                                                                            <Setter Property="Foreground" Value="#F38BA8" />
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
-                                                    </DataTemplate>
-                                                </DataGridTemplateColumn.CellTemplate>
-                                            </DataGridTemplateColumn>
-
-                                            <!-- Điều khiển -->
-                                            <DataGridTemplateColumn Header="{DynamicResource ui_Col_Controls}" Width="230">
-                                                <DataGridTemplateColumn.CellTemplate>
-                                                    <DataTemplate>
-                                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                            <Button Content="{DynamicResource ui_Start}" Click="DashboardStart_Click"
-                                                                    IsEnabled="{Binding CanStart}"
-                                                                    Style="{StaticResource PrimaryButtonStyle}"
-                                                                    Background="#A6E3A1" Foreground="#1E1E2E"
-                                                                    FontSize="11" Padding="8,4" Margin="0,0,4,0" />
-                                                            <Button Content="⏹" Click="DashboardStop_Click"
-                                                                    IsEnabled="{Binding CanStop}"
-                                                                    Style="{StaticResource DangerButtonStyle}"
-                                                                    FontSize="11" Padding="8,4" Margin="0,0,4,0" />
-                                                            <Button Content="🗑" Click="DashboardDelete_Click"
-                                                                    Style="{StaticResource PrimaryButtonStyle}"
-                                                                    Background="#585B70" Foreground="White"
-                                                                    FontSize="11" Padding="8,4"
-                                                                    ToolTip="{DynamicResource ui_Tooltip_DeleteMacro}" />
-                                                            <ToggleButton
-                                                                IsChecked="{Binding SendTelegramOnComplete,
-                                                                            Mode=TwoWay,
-                                                                            UpdateSourceTrigger=PropertyChanged}"
-                                                                ToolTip="{Binding SendTelegramOnComplete,
-                                                                          Converter={StaticResource BoolToTelegramTooltipConverter}}"
-                                                                Style="{StaticResource TelegramToggleButtonStyle}"
-                                                                Margin="4,0,0,0"
-                                                                Content="🔔" />
-                                                            <TextBlock Text="⚠ Chưa có Token"
-                                                                       Foreground="Gold"
-                                                                       FontSize="10"
-                                                                       VerticalAlignment="Center"
-                                                                       Margin="2,0,0,0">
+                                                        <StackPanel Margin="2,0">
+                                                            <!-- Status badge -->
+                                                            <Border CornerRadius="3" Padding="5,2" HorizontalAlignment="Left">
+                                                                <Border.Style>
+                                                                    <Style TargetType="Border">
+                                                                        <Setter Property="Background" Value="#A6E3A1"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding Status}" Value="Running">
+                                                                                <Setter Property="Background" Value="#F9E2AF"/>
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding Status}" Value="Waiting">
+                                                                                <Setter Property="Background" Value="#89B4FA"/>
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding Status}" Value="Stopped">
+                                                                                <Setter Property="Background" Value="#F38BA8"/>
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding Status}" Value="Error">
+                                                                                <Setter Property="Background" Value="#F38BA8"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Border.Style>
+                                                                <TextBlock Text="{Binding Status}" Foreground="#1E1E2E" FontSize="11" FontWeight="SemiBold"/>
+                                                            </Border>
+                                                            <!-- Schedule summary -->
+                                                            <TextBlock Text="{Binding ScheduleSummary}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis">
                                                                 <TextBlock.Style>
                                                                     <Style TargetType="TextBlock">
+                                                                        <Setter Property="Foreground" Value="#6C7086"/>
                                                                         <Setter Property="Visibility" Value="Collapsed"/>
                                                                         <Style.Triggers>
-                                                                            <MultiDataTrigger>
-                                                                                <MultiDataTrigger.Conditions>
-                                                                                    <Condition Binding="{Binding SendTelegramOnComplete}" Value="True"/>
-                                                                                    <Condition Binding="{Binding Source={x:Static settings:AppSettings.Instance},
-                                                                                                     Path=HasTelegramToken}" Value="False"/>
-                                                                                </MultiDataTrigger.Conditions>
+                                                                            <DataTrigger Binding="{Binding HasSchedule}" Value="True">
+                                                                                <Setter Property="Foreground" Value="#FAB387"/>
                                                                                 <Setter Property="Visibility" Value="Visible"/>
-                                                                            </MultiDataTrigger>
+                                                                            </DataTrigger>
                                                                         </Style.Triggers>
                                                                     </Style>
                                                                 </TextBlock.Style>
@@ -644,6 +759,136 @@
                                                     </DataTemplate>
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
+
+                                            <!-- Col 6: Điều khiển — fixed-width column to prevent overflow -->
+                                            <DataGridTemplateColumn Header="Điều khiển" Width="210" MinWidth="210">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Grid Margin="2,4" Width="204">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+
+                                                            <!-- Row 1: Primary actions — 3 equal buttons -->
+                                                            <Grid Grid.Row="0" Margin="0,0,0,3">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                </Grid.ColumnDefinitions>
+
+                                                                <Button Grid.Column="0" Margin="0,0,2,0" Height="26"
+                                                                        Background="#A6E3A1" Foreground="#1E1E2E"
+                                                                        FontWeight="Bold" FontSize="11"
+                                                                        BorderThickness="0" Cursor="Hand"
+                                                                        Click="DashboardStart_Click"
+                                                                        IsEnabled="{Binding CanStart}"
+                                                                        ToolTip="Chạy macro">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="#1E1E2E" Width="10" Height="10" Stretch="Uniform" Margin="0,0,4,0"/>
+                                                                        <TextBlock Text="Chạy"/>
+                                                                    </StackPanel>
+                                                                </Button>
+
+                                                                <Button Grid.Column="1" Margin="0,0,2,0" Height="26"
+                                                                        Background="#F38BA8" Foreground="#1E1E2E"
+                                                                        FontWeight="Bold" FontSize="11"
+                                                                        BorderThickness="0" Cursor="Hand"
+                                                                        Click="DashboardStop_Click"
+                                                                        IsEnabled="{Binding CanStop}"
+                                                                        ToolTip="Dừng macro">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <Path Data="M6,6H18V18H6V6Z" Fill="#1E1E2E" Width="10" Height="10" Stretch="Uniform" Margin="0,0,4,0"/>
+                                                                        <TextBlock Text="Dừng"/>
+                                                                    </StackPanel>
+                                                                </Button>
+
+                                                                <Button Grid.Column="2" Height="26"
+                                                                        Background="#89B4FA" Foreground="#1E1E2E"
+                                                                        FontWeight="Bold" FontSize="11"
+                                                                        BorderThickness="0" Cursor="Hand"
+                                                                        Click="DashboardRename_Click"
+                                                                        ToolTip="Sửa macro">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <Path Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Fill="#1E1E2E" Width="10" Height="10" Stretch="Uniform" Margin="0,0,4,0"/>
+                                                                        <TextBlock Text="Sửa"/>
+                                                                    </StackPanel>
+                                                                </Button>
+                                                            </Grid>
+
+                                                            <!-- Row 2: Secondary actions — 5 equal buttons -->
+                                                            <Grid Grid.Row="1">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                </Grid.ColumnDefinitions>
+
+                                                                <!-- Schedule -->
+                                                                <Button Grid.Column="0" Margin="0,0,2,0" Height="22"
+                                                                        Background="#313244" Foreground="#FAB387"
+                                                                        FontSize="11" BorderThickness="0" Cursor="Hand"
+                                                                        Click="BtnDashSchedule_Click"
+                                                                        ToolTip="{Binding ScheduleSummary}">
+                                                                    <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M16.2,16.2L11,13V7H12.5V12.2L17,14.9L16.2,16.2Z" Fill="#FAB387" Width="10" Height="10" Stretch="Uniform"/>
+                                                                </Button>
+
+                                                                <!-- History -->
+                                                                <Button Grid.Column="1" Margin="0,0,2,0" Height="22"
+                                                                        Background="#313244" Foreground="#89DCEB"
+                                                                        FontSize="11" BorderThickness="0" Cursor="Hand"
+                                                                        Click="BtnDashHistory_Click"
+                                                                        ToolTip="Lịch sử chạy">
+                                                                    <Path Data="M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M13,3A9,9 0 0,0 4,12H1L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3Z" Fill="#89DCEB" Width="10" Height="10" Stretch="Uniform"/>
+                                                                </Button>
+
+                                                                <!-- Lock -->
+                                                                <Button Grid.Column="2" Margin="0,0,2,0" Height="22"
+                                                                        Background="#313244" Foreground="#CBA6F7"
+                                                                        FontSize="11" BorderThickness="0" Cursor="Hand"
+                                                                        Click="BtnDashLock_Click"
+                                                                        ToolTip="{Binding LockStatus}">
+                                                                    <Path Width="10" Height="10" Stretch="Uniform">
+                                                                        <Path.Style>
+                                                                            <Style TargetType="Path">
+                                                                                <Setter Property="Data" Value="M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V10A2,2 0 0,1 6,8H15V6A3,3 0 0,0 12,3A3,3 0 0,0 9,6H7A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,17A2,2 0 0,0 14,15A2,2 0 0,0 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17Z"/>
+                                                                                <Setter Property="Fill" Value="#CBA6F7"/>
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsLocked}" Value="True">
+                                                                                        <Setter Property="Data" Value="M12,17A2,2 0 0,0 14,15C14,13.89 13.1,13 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10C4,8.89 4.9,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </Path.Style>
+                                                                    </Path>
+                                                                </Button>
+
+                                                                <!-- Telegram -->
+                                                                <ToggleButton Grid.Column="3" Margin="0,0,2,0" Height="22"
+                                                                             IsChecked="{Binding SendTelegramOnComplete, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                             ToolTip="Thông báo Telegram"
+                                                                             Background="#313244" Foreground="#A6E3A1"
+                                                                             BorderThickness="0" Cursor="Hand">
+                                                                    <Path Data="M10,21H14A2,2 0 0,1 12,23A2,2 0 0,1 10,21M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19Z" Fill="#A6E3A1" Width="11" Height="11" Stretch="Uniform"/>
+                                                                </ToggleButton>
+
+                                                                <!-- Delete -->
+                                                                <Button Grid.Column="4" Height="22"
+                                                                        Background="#313244" Foreground="#F38BA8"
+                                                                        FontSize="12" BorderThickness="0" Cursor="Hand"
+                                                                        Click="DashboardDelete_Click"
+                                                                        ToolTip="Xóa macro">
+                                                                    <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" Fill="#F38BA8" Width="10" Height="10" Stretch="Uniform"/>
+                                                                </Button>
+                                                            </Grid>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+
                                         </DataGrid.Columns>
                                     </DataGrid>
                                 </Grid>
@@ -1341,15 +1586,18 @@
                                                     Padding="8,6" FontSize="12" />
 
                                                 <TextBlock Text="{DynamicResource ui_Settings_Telegram_ChatIdLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource OverlayBrush}" Margin="0,0,0,4" />
-                                                <TextBox x:Name="TxtTelegramChatId" Width="400" HorizontalAlignment="Left" Margin="0,0,0,16"
+                                                <TextBox x:Name="TxtTelegramChatId" Width="400" HorizontalAlignment="Left" Margin="0,0,0,12"
                                                     Background="#1E1E2E" Foreground="#CDD6F4" BorderBrush="#45475A" BorderThickness="1"
                                                     Padding="8,6" FontSize="12" />
 
-                                                <Button x:Name="BtnSaveTelegramSettings" Style="{StaticResource PrimaryButtonStyle}"
-                                                    Content="{DynamicResource ui_Settings_Telegram_SaveButton}" Click="BtnSaveTelegramSettings_Click"
-                                                    Padding="20,10" HorizontalAlignment="Left" Margin="0,0,0,12" />
+                                                <CheckBox x:Name="ChkScreenshotOnError"
+                                                    Content="📸 Chụp màn hình tự động khi macro lỗi"
+                                                    IsChecked="{Binding Source={x:Static settings:AppSettings.Instance}, Path=ScreenshotOnError}"
+                                                    Foreground="#CDD6F4" Margin="0,0,0,4"/>
+                                                <TextBlock Text="Ảnh lỗi lưu tại: logs/errors/ và gửi kèm Telegram (nếu bật)"
+                                                    Foreground="#6C7086" FontSize="11" Margin="20,0,0,0"/>
 
-                                                <Border Height="1" Background="{StaticResource Surface1Brush}" Margin="0,4,0,16" />
+                                                <Border Height="1" Background="{StaticResource Surface1Brush}" Margin="0,12,0,16" />
 
                                                 <TextBlock Text="{DynamicResource ui_Settings_Telegram_HowToTitle}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,8" />
 
@@ -1443,6 +1691,23 @@
                                                        FontSize="11" Margin="0,3,0,0"
                                                        Foreground="{StaticResource SubtextBrush}" />
                                         </StackPanel>
+                                    </DockPanel>
+                                </Border>
+
+                                <!-- Help Link -->
+                                <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
+                                    <DockPanel>
+                                        <Button x:Name="BtnOpenHelp"
+                                                DockPanel.Dock="Right"
+                                                Content="{DynamicResource ui_About_HelpLink}"
+                                                Click="BtnOpenHelp_Click"
+                                                Style="{StaticResource PrimaryButtonStyle}"
+                                                Padding="14,8" FontSize="12"
+                                                VerticalAlignment="Center" />
+                                        <TextBlock Text="📖 Hướng dẫn sử dụng chi tiết"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="13"
+                                                   Foreground="{StaticResource SubtextBrush}" />
                                     </DockPanel>
                                 </Border>
 

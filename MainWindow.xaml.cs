@@ -23,6 +23,13 @@ namespace SmartMacroAI;
 
 public partial class MainWindow : Window
 {
+    public class VariableItem
+    {
+        public string Name { get; set; } = "";
+        public string Value { get; set; } = "";
+        public string Display => $"{{{{{Name}}}}} = \"{Value}\"";
+    }
+
     private MacroScript _currentScript = new();
     private readonly ObservableCollection<MacroAction> _actions = [];
     private MacroEngine? _macroEngine;
@@ -71,7 +78,7 @@ public partial class MainWindow : Window
     // ── Update Checker ──
     /// <summary>Fallback display / parse if assembly version is unavailable.</summary>
     public static string AppVersion => CurrentVersion;
-    private const string CurrentVersion   = "v1.3.0";
+    private const string CurrentVersion   = "v1.4.0";
     private const string GitHubApiUrl     = "https://api.github.com/repos/TroniePh/SmartMacroAI/releases/latest";
     private const string LandingPageUrl   = "https://tronieph.github.io/SmartMacroAI-Website/";
     /// <summary>GitHub rejects API calls without a descriptive User-Agent.</summary>
@@ -84,16 +91,29 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        InitializeComponent();
-        MacroCanvas.PreviewMouseLeftButtonUp += Workflow_PreviewMouseLeftButtonUp;
-        LanguageManager.UiLanguageChanged += OnUiLanguageChanged;
-        DashboardGrid.ItemsSource = _dashboardRows;
-        StealthGrid.ItemsSource = _stealthRows;
-        _hotkeySettings = HotkeySettings.Load();
-        InitializeTrayIcon();
-        SyncScriptToUi();
-        LoadDashboard();
-        UpdateProcessBar();
+        try
+        {
+            InitializeComponent();
+            MacroCanvas.PreviewMouseLeftButtonUp += Workflow_PreviewMouseLeftButtonUp;
+            LanguageManager.UiLanguageChanged += OnUiLanguageChanged;
+            DashboardGrid.ItemsSource = _dashboardRows;
+            StealthGrid.ItemsSource = _stealthRows;
+            _hotkeySettings = HotkeySettings.Load();
+            InitializeTrayIcon();
+            SyncScriptToUi();
+            LoadDashboard();
+            UpdateProcessBar();
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText("crash_init.log", ex.ToString()); } catch { }
+            MessageBox.Show(
+                $"Lỗi InitializeComponent:\n\n{ex.Message}\n\nXem crash_init.log",
+                "Startup Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            throw;
+        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -102,12 +122,30 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        _hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
-        _hwndSource?.AddHook(WndProc);
-        RegisterHotkeys();
-        InitSettingsUi();
-        StartAntiDetectionServices();
-        _ = CheckForUpdatesAsync(silent: true);
+        try
+        {
+            _hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            _hwndSource?.AddHook(WndProc);
+            RegisterHotkeys();
+            InitSettingsUi();
+            StartAntiDetectionServices();
+            RegisterAllSchedules();
+            _ = CheckForUpdatesAsync(silent: true);
+
+            // Initialize notification center
+            NotificationList.ItemsSource = NotificationService.Instance.Notifications;
+            UpdateNotificationBadge();
+            NotificationService.Instance.Notifications.CollectionChanged += (s, args) => Dispatcher.Invoke(UpdateNotificationBadge);
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText("crash_loaded.log", ex.ToString()); } catch { }
+            MessageBox.Show(
+                $"Lỗi Window_Loaded:\n\n{ex.Message}\n\nXem crash_loaded.log",
+                "Startup Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -716,13 +754,52 @@ public partial class MainWindow : Window
     private void BtnSettings_Click(object sender, RoutedEventArgs e) => SetActiveView("Settings");
     private void BtnAbout_Click(object sender, RoutedEventArgs e) => SetActiveView("About");
 
+    private void BtnDashEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        string? filePath = btn.Tag?.ToString();
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
+
+        MacroScript? script = ScriptManager.Load(filePath);
+        if (script is null) return;
+
+        SetActiveView("MacroEditor");
+        _currentScript = script;
+        _actions.Clear();
+        foreach (var a in _currentScript.Actions) _actions.Add(a);
+        SyncScriptToUi();
+        RebuildCanvas();
+        AppendLog($"[Editor] Đã mở: {script.Name}");
+    }
+
     private void BtnNewMacro_Click(object sender, RoutedEventArgs e)
     {
-        _currentScript = new MacroScript();
-        _actions.Clear();
-        SyncScriptToUi();
-        SetActiveView("MacroEditor");
-        AppendLog("New macro created.");
+        var dlg = new TemplatePickerDialog { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.SelectedTemplate != null)
+        {
+            var template = dlg.SelectedTemplate;
+            _currentScript = new MacroScript
+            {
+                Name = template.Name.Replace("🔐", "").Replace("📊", "").Replace("🔄", "")
+                                  .Replace("🔍", "").Replace("⌨️", "").Replace("📋", "")
+                                  .Replace("📸", "").Replace("🚀", "").Trim()
+            };
+            _currentScript.TargetWindowTitle = template.TargetWindowTitle;
+            _actions.Clear();
+            foreach (var action in template.Actions)
+                _actions.Add(action);
+            SyncScriptToUi();
+            SetActiveView("MacroEditor");
+            AppendLog($"[Template] Đã tạo từ mẫu: {template.Name}");
+        }
+        else
+        {
+            _currentScript = new MacroScript();
+            _actions.Clear();
+            SyncScriptToUi();
+            SetActiveView("MacroEditor");
+            AppendLog("New macro created.");
+        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -1073,6 +1150,7 @@ public partial class MainWindow : Window
         var s = AppSettings.Load();
         TxtTelegramBotToken.Password = s.TelegramBotToken;
         TxtTelegramChatId.Text = s.TelegramChatId;
+        ChkScreenshotOnError.IsChecked = s.ScreenshotOnError;
     }
 
     private void BtnSaveTelegramSettings_Click(object sender, RoutedEventArgs e)
@@ -1080,6 +1158,7 @@ public partial class MainWindow : Window
         var s = AppSettings.Load();
         s.TelegramBotToken = TxtTelegramBotToken.Password.Trim();
         s.TelegramChatId = TxtTelegramChatId.Text.Trim();
+        s.ScreenshotOnError = ChkScreenshotOnError.IsChecked == true;
         s.Save();
         ShowToast("Đã lưu Telegram!", isError: false);
     }
@@ -1273,6 +1352,21 @@ public partial class MainWindow : Window
     private async void DashboardStart_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: DashboardRowVm row }) return;
+        await RunDashboardMacroAsync(row);
+    }
+
+    /// <summary>
+    /// Executes a macro from the dashboard row. Used by both the dashboard Start button
+    /// and the scheduler when a scheduled macro fires.
+    /// </summary>
+    public async Task RunDashboardMacroAsync(DashboardRowVm row)
+    {
+        // Check password lock before running
+        if (!CheckMacroLock(row.Script, "chạy"))
+        {
+            ShowToast("Bạn cần nhập mật khẩu để chạy macro này.", isError: true);
+            return;
+        }
 
         if (string.IsNullOrWhiteSpace(row.TargetWindow))
         {
@@ -1330,6 +1424,13 @@ public partial class MainWindow : Window
             UpdateProcessBar();
             AppendLog($"[{row.MacroName}] Lỗi: {ex.Message}");
         });
+        var startTime = DateTime.Now;
+        row.Engine.Log += msg => Dispatcher.Invoke(() =>
+        {
+            AppendLog($"[{row.MacroName}] {msg}");
+            if (msg.Contains("Waiting")) row.Status = "Waiting";
+            else if (msg.Contains("Iteration") || msg.Contains("CSV Row")) row.Status = "Running";
+        });
 
         try
         {
@@ -1343,7 +1444,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"[{row.MacroName}] Lỗi: {ex.Message}");
+            AppendLog($"[{row.MacroName}] Lừ: {ex.Message}");
         }
         finally
         {
@@ -1371,56 +1472,20 @@ public partial class MainWindow : Window
         AppendLog($"[{row.MacroName}] Yêu cầu dừng.");
     }
 
-    private async void DashboardRename_Click(object sender, RoutedEventArgs e)
+    private void DashboardRename_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: DashboardRowVm row }) return;
 
-        if (row.IsRunning)
-        {
-            ShowToast("Dừng macro trước khi đổi tên.", isError: true);
-            return;
-        }
+        MacroScript? script = ScriptManager.Load(row.FilePath);
+        if (script is null) return;
 
-        var dlg = new RenameMacroDialog(row.Script.Name) { Owner = this };
-        if (dlg.ShowDialog() != true || string.IsNullOrWhiteSpace(dlg.NewName))
-            return;
-
-        string newDisplayName = dlg.NewName.Trim();
-        string oldPath = row.FilePath;
-        string dir = Path.GetDirectoryName(oldPath) ?? ScriptManager.DefaultScriptsFolder;
-
-        string newStem = ScriptManager.SanitizeFileStem(newDisplayName);
-        string newPath = Path.GetFullPath(Path.Combine(dir, newStem + ".json"));
-        string oldFull = Path.GetFullPath(oldPath);
-
-        try
-        {
-            if (!string.Equals(newPath, oldFull, StringComparison.OrdinalIgnoreCase))
-            {
-                if (File.Exists(newPath))
-                {
-                    MessageBox.Show(
-                        $"Đã tồn tại file:\n{newPath}",
-                        "Đổi tên macro",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Warning);
-                    return;
-                }
-
-                File.Move(oldPath, newPath);
-                row.FilePath = newPath;
-            }
-
-            row.Script.Name = newDisplayName;
-            await ScriptManager.SaveAsync(row.Script, row.FilePath);
-            row.NotifyScriptMetadataChanged();
-            LoadDashboard();
-            ShowToast($"Đã đổi tên thành \"{newDisplayName}\".", isError: false);
-        }
-        catch (Exception ex)
-        {
-            ShowToast($"Đổi tên thất bại: {ex.Message}", isError: true);
-        }
+        SetActiveView("MacroEditor");
+        _currentScript = script;
+        _actions.Clear();
+        foreach (var a in _currentScript.Actions) _actions.Add(a);
+        SyncScriptToUi();
+        RebuildCanvas();
+        AppendLog($"[Editor] Đã mở: {script.Name}");
     }
 
     private void DashboardDelete_Click(object sender, RoutedEventArgs e)
@@ -1456,6 +1521,41 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BtnDashLock_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: DashboardRowVm row }) return;
+
+        var dlg = new MacroLockDialog(row.Script) { Owner = this };
+        if (dlg.ShowDialog() == true)
+        {
+            row.NotifyScriptMetadataChanged();
+            LoadDashboard();
+        }
+    }
+
+    /// <summary>
+    /// Checks if the macro requires a password and prompts the user if needed.
+    /// Returns true if the macro can proceed, false if access is denied.
+    /// </summary>
+    private bool CheckMacroLock(MacroScript script, string action = "chạy")
+    {
+        if (!MacroLockService.IsLocked(script)) return true;
+
+        bool requiresCheck = action == "chạy" ? script.LockRun : script.LockEdit;
+        if (!requiresCheck) return true;
+
+        var dialog = new PasswordDialog($"Nhập mật khẩu để {action} macro \"{script.Name}\"") { Owner = this };
+        if (dialog.ShowDialog() != true) return false;
+
+        if (!MacroLockService.Verify(dialog.Password, script.PasswordHash!))
+        {
+            MessageBox.Show("Mật khẩu không đúng!", "Lỗi",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        return true;
+    }
+
     // ═══════════════════════════════════════════════════
     //  PROCESS BAR & STOP ALL
     // ═══════════════════════════════════════════════════
@@ -1468,6 +1568,8 @@ public partial class MainWindow : Window
         ProcessDot.Fill = active > 0
             ? (Brush)FindResource("AccentYellowBrush")
             : (Brush)FindResource("AccentGreenBrush");
+
+        RefreshDashboardStats();
     }
 
     private void BtnStopAllMacros_Click(object sender, RoutedEventArgs e)
@@ -1480,6 +1582,84 @@ public partial class MainWindow : Window
         }
         _cts?.Cancel();
         AppendLog($"STOP ALL: đã dừng {count} macro đang chạy.");
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  RUN HISTORY
+    // ═══════════════════════════════════════════════════
+
+    private void BtnDashHistory_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+
+        string macroName = null!;
+
+        // First try DataContext (preferred for consistency)
+        if (btn.DataContext is DashboardRowVm row)
+        {
+            macroName = row.MacroName;
+        }
+        // Fallback to Tag (for future button templates)
+        else if (btn.Tag is string macroFilePath)
+        {
+            macroName = Path.GetFileNameWithoutExtension(macroFilePath);
+        }
+        else
+        {
+            return;
+        }
+
+        var dialog = new RunHistoryDialog(macroName)
+        {
+            Owner = this
+        };
+        dialog.ShowDialog();
+    }
+
+    private void BtnGlobalHistory_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new RunHistoryDialog(null)
+        {
+            Owner = this
+        };
+        dialog.ShowDialog();
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  NOTIFICATION CENTER
+    // ═══════════════════════════════════════════════════
+
+    private void BtnNotifications_Click(object sender, RoutedEventArgs e)
+    {
+        NotificationList.ItemsSource = NotificationService.Instance.Notifications;
+        UpdateNotificationBadge();
+        NotificationPopup.IsOpen = !NotificationPopup.IsOpen;
+    }
+
+    private void BtnMarkAllRead_Click(object sender, RoutedEventArgs e)
+    {
+        NotificationService.Instance.MarkAllRead();
+        UpdateNotificationBadge();
+    }
+
+    private void BtnClearNotifications_Click(object sender, RoutedEventArgs e)
+    {
+        NotificationService.Instance.Clear();
+        UpdateNotificationBadge();
+    }
+
+    private void UpdateNotificationBadge()
+    {
+        int unreadCount = NotificationService.Instance.UnreadCount;
+        if (unreadCount > 0)
+        {
+            TxtBadgeCount.Text = unreadCount > 99 ? "99+" : unreadCount.ToString();
+            NotificationBadge.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            NotificationBadge.Visibility = Visibility.Collapsed;
+        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -1538,6 +1718,7 @@ public partial class MainWindow : Window
         "ClearVar" => new ClearVariableAction(),
         "LogVar" => new LogVariableAction(),
         "Telegram" => CreateTelegramActionWithDefaults(),
+        "CallMacro" => new CallMacroAction(),
         _ => null,
     };
 
@@ -2411,7 +2592,131 @@ public partial class MainWindow : Window
             AppendLog($"Saved: {dlg.FileName}");
             ShowToast($"Macro saved to {Path.GetFileName(dlg.FileName)}", isError: false);
         }
-        catch (Exception ex) { ShowToast($"Save failed: {ex.Message}", isError: true); }
+            catch (Exception ex) { ShowToast($"Save failed: {ex.Message}", isError: true); }
+    }
+
+    private void RegisterAllSchedules()
+    {
+        var files = ScriptManager.EnumerateSavedScripts().ToList();
+        foreach (var file in files)
+        {
+            var script = ScriptManager.Load(file);
+            if (script?.Schedule?.Enabled == true)
+            {
+                SchedulerService.Register(script, async (s) =>
+                {
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        AppendLog($"[⏰ Scheduler] Macro \"{s.Name}\" kích hoạt lúc {DateTime.Now:HH:mm:ss}");
+
+                        var row = _dashboardRows.FirstOrDefault(r => r.MacroName == s.Name);
+                        if (row != null)
+                        {
+                            await RunDashboardMacroAsync(row);
+                        }
+                        else
+                        {
+                            var runScript = ScriptManager.Load(file);
+                            if (runScript == null)
+                            {
+                                AppendLog($"[Scheduler] ❌ Không đọc được file: {file}");
+                                return;
+                            }
+                            IntPtr hwnd = ResolveHwnd(runScript.TargetWindowTitle);
+                            if (hwnd == IntPtr.Zero)
+                            {
+                                AppendLog($"[Scheduler] ❌ Không tìm thấy cửa sổ: {runScript.TargetWindowTitle}");
+                                return;
+                            }
+                            var engine = new MacroEngine { HardwareMode = false };
+                            engine.Log += msg => AppendLog($"[{s.Name}] {msg}");
+                            try
+                            {
+                                await engine.ExecuteScriptAsync(runScript, hwnd, CancellationToken.None);
+                                AppendLog($"[Scheduler] ✅ \"{s.Name}\" hoàn tất.");
+                            }
+                            catch (Exception ex)
+                            {
+                                AppendLog($"[Scheduler] ❌ Lỗi: {ex.Message}");
+                            }
+                        }
+                    });
+                });
+                AppendLog($"[Scheduler] Đã đăng ký: {script.Name} ({script.Schedule.Mode})");
+            }
+        }
+
+        SchedulerService.MacroTriggered += name =>
+        {
+            Dispatcher.Invoke(() => AppendLog($"[⏰ Scheduler] Macro \"{name}\" kích hoạt lúc {DateTime.Now:HH:mm:ss}"));
+        };
+
+        RefreshDashboardStats();
+    }
+
+    private void BtnDashSchedule_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+
+        string? filePath = null;
+
+        // First try DataContext (preferred for consistency)
+        if (btn.DataContext is DashboardRowVm row)
+        {
+            filePath = row.FilePath;
+        }
+        // Fallback to Tag (for future button templates)
+        else if (btn.Tag is string tagPath)
+        {
+            filePath = tagPath;
+        }
+
+        if (string.IsNullOrEmpty(filePath))
+        {
+            ShowToast("Không tìm thấy thông tin macro.", isError: true);
+            return;
+        }
+
+        var script = ScriptManager.Load(filePath);
+        if (script == null)
+        {
+            ShowToast("Không đọc được file macro.", isError: true);
+            return;
+        }
+
+        var dlg = new ScheduleEditDialog(script.Schedule ?? new ScheduleSettings());
+        dlg.Owner = this;
+        if (dlg.ShowDialog() != true || dlg.Result == null) return;
+
+        script.Schedule = dlg.Result;
+        ScriptManager.Save(script, filePath);
+
+        // Re-register all schedules
+        SchedulerService.UnregisterAll();
+        RegisterAllSchedules();
+
+        // Refresh the row in dashboard
+        var dashboardRow = _dashboardRows.FirstOrDefault(r => r.FilePath == filePath);
+        if (dashboardRow != null)
+        {
+            dashboardRow.Script = script;
+            dashboardRow.NotifyExternal(nameof(dashboardRow.Schedule));
+            dashboardRow.NotifyExternal(nameof(dashboardRow.HasSchedule));
+            dashboardRow.NotifyExternal(nameof(dashboardRow.ScheduleSummary));
+        }
+
+        RefreshDashboardStats();
+
+        string summary = script.Schedule.Enabled ? "Đã lên lịch" : "Đã tắt lịch";
+        AppendLog($"[Scheduler] {script.Name}: {summary}");
+    }
+
+    private void RefreshDashboardStats()
+    {
+        int scheduled = _dashboardRows.Count(r => r.HasSchedule);
+        int running = _dashboardRows.Count(r => r.IsRunning);
+        TxtScheduledCount.Text = $"{scheduled} macro đã lên lịch";
+        TxtRunningCount.Text = $"{running} macro đang chạy";
     }
 
     private async void BtnLoadMacro_Click(object sender, RoutedEventArgs e)
@@ -2615,11 +2920,94 @@ public partial class MainWindow : Window
     }
 
     // ═══════════════════════════════════════════════════
+    //  INLINE MACRO RENAME (double-click name in Dashboard)
+    // ═══════════════════════════════════════════════════
+
+    private void MacroName_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount != 2) return;
+        if (sender is TextBlock tb && tb.DataContext is DashboardRowVm vm)
+        {
+            vm.IsEditing = true;
+            vm.OriginalName = vm.Script.Name;
+            tb.Dispatcher.InvokeAsync(() =>
+            {
+                var cell = FindVisualParent<DataGridCell>(tb);
+                var txt = FindVisualChild<TextBox>(cell);
+                txt?.Focus();
+                txt?.SelectAll();
+            }, DispatcherPriority.Render);
+        }
+    }
+
+    private void TxtRename_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox txt) return;
+        if (e.Key == Key.Enter) CommitRename(txt);
+        if (e.Key == Key.Escape) CancelRename(txt);
+    }
+
+    private void TxtRename_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox txt) CommitRename(txt);
+    }
+
+    private void CommitRename(TextBox txt)
+    {
+        if (txt.DataContext is not DashboardRowVm vm) return;
+        vm.IsEditing = false;
+
+        string newName = vm.MacroName;
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            vm.MacroName = vm.OriginalName;
+            vm.NotifyScriptMetadataChanged();
+            return;
+        }
+
+        if (newName == vm.OriginalName) return;
+
+        var script = ScriptManager.Load(vm.FilePath);
+        if (script == null) return;
+
+        script.Name = newName;
+        ScriptManager.Save(script, vm.FilePath);
+        vm.OriginalName = newName;
+        AppendLog($"[Rename] '{vm.OriginalName}' → '{newName}'");
+    }
+
+    private void CancelRename(TextBox txt)
+    {
+        if (txt.DataContext is not DashboardRowVm vm) return;
+        vm.IsEditing = false;
+        vm.MacroName = vm.OriginalName;
+        vm.NotifyScriptMetadataChanged();
+    }
+
+    private static T? FindVisualParent<T>(DependencyObject child) where T : DependencyObject
+    {
+        var parent = VisualTreeHelper.GetParent(child);
+        while (parent != null)
+        {
+            if (parent is T typed) return typed;
+            parent = VisualTreeHelper.GetParent(parent);
+        }
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════
     //  RUN / STOP MACRO (sidebar buttons — editor macro)
     // ═══════════════════════════════════════════════════
 
     private async void BtnRunMacro_Click(object sender, RoutedEventArgs e)
     {
+        // Check password lock before running
+        if (!CheckMacroLock(_currentScript, "chạy"))
+        {
+            ShowToast("Bạn cần nhập mật khẩu để chạy macro này.", isError: true);
+            return;
+        }
+
         SyncUiToScript();
         if (_actions.Count == 0) { ShowToast("No actions to run.", isError: true); return; }
         if (string.IsNullOrWhiteSpace(_currentScript.TargetWindowTitle) && _editorTargetHwnd == IntPtr.Zero)
@@ -3079,6 +3467,23 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BtnOpenHelp_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var url = LanguageManager.GetString("ui_About_HelpUrl");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Không thể mở liên kết: {ex.Message}", isError: true);
+        }
+    }
+
     // ═══════════════════════════════════════════════════
     //  LOG CONSOLE
     // ═══════════════════════════════════════════════════
@@ -3135,6 +3540,7 @@ public partial class MainWindow : Window
         _trayIcon = null;
 
         VisionEngine.Shutdown();
+        SchedulerService.UnregisterAll();
     }
 
     private static string FormatWaitCardDetail(WaitAction w)

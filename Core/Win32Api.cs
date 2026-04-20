@@ -30,6 +30,7 @@ public static class Win32Api
     public const uint WM_KEYDOWN       = 0x0100;
     public const uint WM_KEYUP         = 0x0101;
     public const uint WM_CHAR          = 0x0102;
+    public const uint WM_PASTE         = 0x0302;
     public const uint WM_SETTEXT       = 0x000C;
     public const uint WM_GETTEXT       = 0x000D;
     public const uint WM_GETTEXTLENGTH = 0x000E;

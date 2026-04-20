@@ -48,7 +48,43 @@ public partial class ActionEditDialog : Window
                 break;
             case TypeAction t:
                 AddField("Text", t.Text, displayCaption: "Nội dung gõ");
-                AddField("KeyDelayMs", t.KeyDelayMs.ToString(), displayCaption: "Độ trễ giữa các phím (ms)");
+                FieldsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Cách nhập:",
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = LabelBrush,
+                    Margin = new Thickness(0, 8, 0, 4),
+                });
+
+                var clipboardRb = new System.Windows.Controls.RadioButton
+                {
+                    Content = "📋 Dán từ clipboard (Khuyến nghị cho tiếng Việt/Unikey)",
+                    Foreground = InputFg,
+                    IsChecked = t.InputMethod == TypeInputMethod.Clipboard,
+                    Margin = new Thickness(0, 2, 0, 2),
+                    Tag = "Clipboard"
+                };
+                var wmcharRb = new System.Windows.Controls.RadioButton
+                {
+                    Content = "⌨ Gõ từng ký tự qua WM_CHAR",
+                    Foreground = InputFg,
+                    IsChecked = t.InputMethod == TypeInputMethod.WmChar,
+                    Margin = new Thickness(0, 2, 0, 2),
+                    Tag = "WmChar"
+                };
+                FieldsPanel.Children.Add(clipboardRb);
+                FieldsPanel.Children.Add(wmcharRb);
+
+                AddField("KeyDelayMs", t.KeyDelayMs.ToString(), displayCaption: "Độ trễ mỗi ký tự (ms, chỉ WM_CHAR)");
+                FieldsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Nếu dùng \"Dán clipboard\": bỏ trống hoặc để 0. Nếu dùng \"WM_CHAR\": nhập số ms (vd: 30).",
+                    Foreground = LabelBrush,
+                    FontSize = 10,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
+                });
                 break;
             case WaitAction w:
                 AddField("Milliseconds", (w.DelayMin == w.DelayMax ? w.DelayMin : w.Milliseconds).ToString(), displayCaption: "Thời gian chờ cố định (ms)");
@@ -310,6 +346,21 @@ public partial class ActionEditDialog : Window
                     Margin = new Thickness(0, 6, 0, 0),
                 });
                 break;
+            case CallMacroAction cma:
+                AddFieldWithFileBrowse("MacroFilePath", cma.MacroFilePath, "Kịch bản (.json)", "JSON Files|*.json|All Files|*.*");
+                AddField("MacroName", cma.MacroName, displayCaption: "Tên macro (tự động điền)");
+                AddCheckField("PassVariables", cma.PassVariables, "Truyền biến CSV / runtime sang macro con");
+                AddCheckField("WaitForFinish", cma.WaitForFinish, "Chờ macro con chạy xong (bỏ chọn = chạy song song)");
+                FieldsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Khi \"Truyền biến\" được bật, các biến {{username}}, {{password}} từ CSV của macro cha sẽ " +
+                           "được chuyển sang macro con. Macro con có thể dùng các biến này bình thường.",
+                    Foreground = LabelBrush,
+                    FontSize = 10,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 6, 0, 0),
+                });
+                break;
         }
     }
 
@@ -365,6 +416,56 @@ public partial class ActionEditDialog : Window
         {
             FieldsPanel.Children.Add(textBox);
         }
+    }
+
+    private void AddFieldWithFileBrowse(string fieldKey, string value, string displayCaption, string filter)
+    {
+        string header = string.IsNullOrEmpty(displayCaption) ? fieldKey.ToUpperInvariant() : displayCaption;
+        FieldsPanel.Children.Add(new TextBlock
+        {
+            Text = header,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = LabelBrush,
+            Margin = new Thickness(0, 8, 0, 4),
+        });
+
+        var textBox = new TextBox
+        {
+            Text = value,
+            Background = InputBg,
+            Foreground = InputFg,
+            BorderBrush = InputBorder,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 6, 8, 6),
+            FontSize = 12,
+            CaretBrush = InputFg,
+        };
+        _fields[fieldKey] = textBox;
+
+        var panel = new DockPanel();
+        var btn = new Button
+        {
+            Content = "Chọn...",
+            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#313244")),
+            Foreground = InputFg,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10, 6, 10, 6),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Margin = new Thickness(4, 0, 0, 0),
+        };
+        btn.Click += (_, _) =>
+        {
+            var dlg = new OpenFileDialog { Filter = filter };
+            if (dlg.ShowDialog() == true)
+            {
+                textBox.Text = dlg.FileName;
+            }
+        };
+        DockPanel.SetDock(btn, Dock.Right);
+        panel.Children.Add(btn);
+        panel.Children.Add(textBox);
+        FieldsPanel.Children.Add(panel);
     }
 
     private TextBox? _coordXBox;
@@ -436,6 +537,12 @@ public partial class ActionEditDialog : Window
             var pt = picker.PickedPoint;
             if (_coordXBox != null) _coordXBox.Text = pt.X.ToString();
             if (_coordYBox != null) _coordYBox.Text = pt.Y.ToString();
+
+            // For ClickAction, store the monitor index where the coordinate was captured
+            if (_action is ClickAction ca)
+            {
+                ca.MonitorIndex = picker.PickedMonitorIndex;
+            }
         }
 
         Show();
@@ -709,6 +816,31 @@ public partial class ActionEditDialog : Window
     private int GetIntFieldValue(string key) =>
         int.TryParse(GetFieldValue(key), out int val) ? val : 0;
     private bool GetCheckValue(string key) => _checkFields.TryGetValue(key, out var cb) && cb.IsChecked == true;
+    private string GetRadioValue(string prefix)
+    {
+        foreach (var child in FieldsPanel.Children)
+        {
+            if (child is System.Windows.Controls.RadioButton rb && rb.Tag?.ToString()?.StartsWith(prefix) == true && rb.IsChecked == true)
+                return rb.Tag.ToString()!;
+        }
+        return prefix + "0"; // default
+    }
+
+    private KeyInputMode GetInputModeValue()
+    {
+        foreach (var child in FieldsPanel.Children)
+        {
+            if (child is System.Windows.Controls.RadioButton rb && rb.IsChecked == true)
+            {
+                string? tag = rb.Tag as string;
+                if (tag == "Auto") return KeyInputMode.Auto;
+                if (tag == "SendInput") return KeyInputMode.SendInput;
+                if (tag == "RawInput") return KeyInputMode.RawInput;
+            }
+        }
+        return KeyInputMode.Auto;
+    }
+
     private string GetComboValue(string key)
     {
         if (!_comboFields.TryGetValue(key, out ComboBox? cb))
@@ -814,6 +946,54 @@ public partial class ActionEditDialog : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 0),
         });
+
+        // 3-way Input Mode selector
+        FieldsPanel.Children.Add(new TextBlock
+        {
+            Text = "Chế độ gửi phím:",
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = LabelBrush,
+            Margin = new Thickness(0, 12, 0, 4),
+        });
+
+        var rbAuto = new System.Windows.Controls.RadioButton
+        {
+            Content = "Tự động / Stealth (PostMessage)",
+            IsChecked = kpa.InputMode == KeyInputMode.Auto,
+            Foreground = InputFg,
+            Margin = new Thickness(0, 2, 0, 2),
+            Tag = "Auto"
+        };
+        var rbSendInput = new System.Windows.Controls.RadioButton
+        {
+            Content = "SendInput (Chrome, Electron, VS Code)",
+            IsChecked = kpa.InputMode == KeyInputMode.SendInput,
+            Foreground = InputFg,
+            Margin = new Thickness(0, 2, 0, 2),
+            Tag = "SendInput"
+        };
+        var rbRawInput = new System.Windows.Controls.RadioButton
+        {
+            Content = "Raw Input / Scan Code (game DirectX, Anti-Cheat)",
+            IsChecked = kpa.InputMode == KeyInputMode.RawInput,
+            Foreground = InputFg,
+            Margin = new Thickness(0, 2, 0, 2),
+            Tag = "RawInput"
+        };
+
+        FieldsPanel.Children.Add(rbAuto);
+        FieldsPanel.Children.Add(rbSendInput);
+        FieldsPanel.Children.Add(rbRawInput);
+
+        FieldsPanel.Children.Add(new TextBlock
+        {
+            Text = "↑ Cửa sổ sẽ được đưa lên foreground khi dùng SendInput hoặc Raw Input.",
+            Foreground = LabelBrush,
+            FontSize = 10,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(16, 2, 0, 0),
+        });
     }
 
     private void txtKeyCapture_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -898,7 +1078,10 @@ public partial class ActionEditDialog : Window
                     break;
                 case TypeAction t:
                     t.Text = GetFieldValue("Text");
-                    t.KeyDelayMs = int.Parse(GetFieldValue("KeyDelayMs"));
+                    t.KeyDelayMs = int.TryParse(GetFieldValue("KeyDelayMs"), out int delay) ? delay : 0;
+                    t.InputMethod = GetRadioValue("Clipboard").Contains("Clipboard")
+                        ? TypeInputMethod.Clipboard
+                        : TypeInputMethod.WmChar;
                     break;
                 case WaitAction w:
                     w.Milliseconds = int.Parse(GetFieldValue("Milliseconds"));
@@ -977,6 +1160,7 @@ public partial class ActionEditDialog : Window
                     kpa.VirtualKeyCode = GetIntFieldValue("VirtualKeyCode");
                     kpa.KeyName = GetFieldValue("KeyName");
                     kpa.HoldDurationMs = GetIntFieldValue("HoldDurationMs");
+                    kpa.InputMode = GetInputModeValue();
                     break;
                 case TryCatchAction:
                     break;
@@ -997,6 +1181,12 @@ public partial class ActionEditDialog : Window
                     tg.BotToken = GetPassFieldValue("BotToken");
                     tg.ChatId = GetFieldValue("ChatId");
                     tg.Message = GetFieldValue("Message");
+                    break;
+                case CallMacroAction cma:
+                    cma.MacroFilePath = GetFieldValue("MacroFilePath");
+                    cma.MacroName = GetFieldValue("MacroName");
+                    cma.PassVariables = GetCheckValue("PassVariables");
+                    cma.WaitForFinish = GetCheckValue("WaitForFinish");
                     break;
             }
             DialogResult = true;

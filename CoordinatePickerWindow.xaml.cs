@@ -15,6 +15,7 @@ public partial class CoordinatePickerWindow : Window
     private readonly Line _crosshairLineV;
 
     public System.Drawing.Point PickedPoint { get; private set; }
+    public int PickedMonitorIndex { get; private set; } = 0;
 
     public CoordinatePickerWindow() : this(IntPtr.Zero) { }
 

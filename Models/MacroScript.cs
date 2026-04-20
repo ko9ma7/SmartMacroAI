@@ -96,4 +96,28 @@ public class MacroScript
         "📊 Hoàn thành: <b>{RowsDone}/{RowsTotal}</b> dòng\n" +
         "🔴 Lỗi: <code>{ErrorMessage}</code>\n" +
         "💻 Máy: <code>{MachineName}</code>";
+
+    // === ADDED for scheduler and lock features ===
+
+    /// <summary>Runtime-only: file path this script was loaded from (not serialized).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? FilePath { get; set; }
+
+    /// <summary>Scheduler settings for this macro.</summary>
+    public ScheduleSettings? Schedule { get; set; }
+
+    /// <summary>SHA256 hash of lock password. Null = no lock.</summary>
+    public string? PasswordHash { get; set; }
+
+    /// <summary>Require password to RUN this macro.</summary>
+    public bool LockRun { get; set; } = false;
+
+    /// <summary>Require password to EDIT this macro.</summary>
+    public bool LockEdit { get; set; } = false;
+
+    /// <summary>Run in hardware/anti-cheat mode.</summary>
+    public bool HwMode { get; set; } = false;
+
+    /// <summary>Use stealth mode for target window.</summary>
+    public bool StealthMode { get; set; } = false;
 }

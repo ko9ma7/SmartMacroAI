@@ -20,11 +20,40 @@ public sealed class DashboardRowVm : INotifyPropertyChanged
         {
             _script = value;
             _sendTelegramOnComplete = value.SendTelegramOnComplete;
+            _originalName = value.Name;
+            Notify(nameof(IsLocked));
+            Notify(nameof(LockStatus));
+            Notify(nameof(ShowLockedIcon));
+            Notify(nameof(MacroName));
         }
     }
     private MacroScript _script = new();
 
-    public string MacroName => Script.Name;
+    private bool _isEditing = false;
+    public bool IsEditing
+    {
+        get => _isEditing;
+        set { _isEditing = value; Notify(); Notify(nameof(IsNotEditing)); }
+    }
+    public bool IsNotEditing => !_isEditing;
+
+    private string _originalName = "";
+    public string OriginalName
+    {
+        get => _originalName;
+        set { _originalName = value; Notify(); }
+    }
+
+    public string MacroName
+    {
+        get => _script.Name;
+        set
+        {
+            if (_script.Name == value) return;
+            _script.Name = value;
+            Notify();
+        }
+    }
     public int ActionCount => Script.Actions.Count;
 
     private string _targetWindow = "";
@@ -52,7 +81,19 @@ public sealed class DashboardRowVm : INotifyPropertyChanged
     public string Status
     {
         get => _status;
-        set { if (_status != value) { _status = value; Notify(); } }
+        set
+        {
+            if (_status != value)
+            {
+                _status = value;
+                Notify();
+                Notify(nameof(CanStart));
+                Notify(nameof(CanStop));
+                Notify(nameof(RunButtonColor));
+                Notify(nameof(RunButtonText));
+                Notify(nameof(IsStopMode));
+            }
+        }
     }
 
     private bool _isRunning;
@@ -73,6 +114,19 @@ public sealed class DashboardRowVm : INotifyPropertyChanged
 
     public bool CanStart => !_isRunning;
     public bool CanStop => _isRunning;
+
+    public ScheduleSettings Schedule => Script.Schedule;
+
+    public bool HasSchedule => Script.Schedule?.Enabled == true;
+
+    public string ScheduleSummary => Script.Schedule?.Enabled == true ? Script.Schedule.Mode switch
+    {
+        "Daily" => $"Hàng ngày {Script.Schedule.RunAt:hh\\:mm}",
+        "Interval" => $"Mỗi {Script.Schedule.IntervalMinutes} phút",
+        "Once" => Script.Schedule.RunOnce.HasValue ? $"1 lần {Script.Schedule.RunOnce:dd/MM HH:mm}" : "1 lần",
+        "OnStartup" => "Khởi động",
+        _ => "Đã lên lịch"
+    } : "—";
 
     private bool _stealthMode;
     public bool StealthMode
@@ -104,6 +158,31 @@ public sealed class DashboardRowVm : INotifyPropertyChanged
         }
     }
 
+    public bool IsLocked => MacroLockService.IsLocked(Script);
+
+    public string LockStatus => MacroLockService.GetLockStatus(Script);
+
+    /// <summary>Lock icon path data for UI — filled by IsLocked.</summary>
+    public bool ShowLockedIcon => IsLocked;
+
+    /// <summary>Run button color based on current macro status.</summary>
+    public string RunButtonColor => Status switch
+    {
+        "Running" => "#FAB387",
+        "Error" => "#F38BA8",
+        _ => "#A6E3A1"
+    };
+
+    /// <summary>Run button text based on current macro status.</summary>
+    public string RunButtonText => Status switch
+    {
+        "Running" => "Dừng",
+        _ => "Chạy"
+    };
+
+    /// <summary>Whether the primary action should show Stop (true) or Run (false).</summary>
+    public bool IsStopMode => Status == "Running";
+
     // Runtime state (not bound to UI)
     public MacroEngine? Engine { get; set; }
     public CancellationTokenSource? Cts { get; set; }
@@ -112,6 +191,10 @@ public sealed class DashboardRowVm : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     private void Notify([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    /// <summary>Call from MainWindow when properties change externally (e.g., after schedule edit).</summary>
+    public void NotifyExternal(string propertyName)
+        => Notify(propertyName);
 
     /// <summary>Call after changing <see cref="Script"/>.Name or action list so the Dashboard row refreshes.</summary>
     public void NotifyScriptMetadataChanged()
