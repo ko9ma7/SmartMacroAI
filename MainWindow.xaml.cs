@@ -2933,6 +2933,7 @@ public partial class MainWindow : Window
             tb.Dispatcher.InvokeAsync(() =>
             {
                 var cell = FindVisualParent<DataGridCell>(tb);
+                if (cell == null) return;
                 var txt = FindVisualChild<TextBox>(cell);
                 txt?.Focus();
                 txt?.SelectAll();

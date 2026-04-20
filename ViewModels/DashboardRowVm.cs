@@ -115,7 +115,7 @@ public sealed class DashboardRowVm : INotifyPropertyChanged
     public bool CanStart => !_isRunning;
     public bool CanStop => _isRunning;
 
-    public ScheduleSettings Schedule => Script.Schedule;
+    public ScheduleSettings? Schedule => Script.Schedule;
 
     public bool HasSchedule => Script.Schedule?.Enabled == true;
 

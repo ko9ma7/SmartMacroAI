@@ -62,6 +62,7 @@ public static class SchedulerService
 
     private static void RegisterDaily(MacroScript script, Func<MacroScript, Task> callback)
     {
+        if (script.Schedule == null) return;
         var now = DateTime.Now;
         var target = DateTime.Today.Add(script.Schedule.RunAt);
         if (target <= now)
@@ -77,6 +78,7 @@ public static class SchedulerService
 
     private static void RegisterInterval(MacroScript script, Func<MacroScript, Task> callback)
     {
+        if (script.Schedule == null) return;
         var interval = TimeSpan.FromMinutes(script.Schedule.IntervalMinutes);
         var timer = new System.Threading.Timer(
             async _ => await FireMacro(script, callback),
@@ -87,7 +89,7 @@ public static class SchedulerService
 
     private static void RegisterOnce(MacroScript script, Func<MacroScript, Task> callback)
     {
-        if (!script.Schedule.RunOnce.HasValue)
+        if (script.Schedule == null || !script.Schedule.RunOnce.HasValue)
             return;
 
         var delay = script.Schedule.RunOnce.Value - DateTime.Now;
