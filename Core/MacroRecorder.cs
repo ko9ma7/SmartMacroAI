@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Input;
+using SmartMacroAI;
 using SmartMacroAI.Models;
 
 namespace SmartMacroAI.Core;
@@ -10,30 +12,38 @@ namespace SmartMacroAI.Core;
 /// objects using <see cref="GlobalHookManager"/>.  Clicks are filtered to the target
 /// window and coordinates are converted to client-relative via ScreenToClient.
 /// Consecutive keystrokes are batched into a single <see cref="TypeAction"/>.
+/// Supports Unikey Vietnamese input by buffering keystrokes and applying backspaces
+/// (from Unikey corrections) before flushing.
 /// </summary>
 public sealed class MacroRecorder : IDisposable
 {
     private const uint VK_F10 = 0x79;
     private const int MIN_WAIT_MS = 100;
 
-    // Modifiers-only VK codes — captured but not recorded as standalone actions
-    private static readonly uint[] MODIFIER_KEYS =
-    [
+    // Keys that should never be recorded as standalone actions
+    private static readonly HashSet<uint> SKIP_KEYS = new()
+    {
         0x10, 0x11, 0x12,       // Shift, Ctrl, Alt
-        0xA0, 0xA1,             // Left/Right Shift
-        0xA2, 0xA3,             // Left/Right Ctrl
-        0xA4, 0xA5,             // Left/Right Alt
+        0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, // L/R modifiers
         0x5B, 0x5C,             // Left/Right Win
-    ];
+        0xE7, 0xE8, 0xE9, 0xEA, 0xEB,        // Unikey virtual keys
+        0x15, 0x19, 0x1C, 0x1F, 0xE5,        // IME keys
+        0xF0, 0xF1, 0xF2, 0xF3, 0xF4,        // Unikey internal
+        0xFF                                  // Unknown/undefined
+    };
 
     private readonly GlobalHookManager _hookManager = new();
     private readonly Stopwatch _stopwatch = new();
     private readonly List<MacroAction> _recordedActions = [];
-    private readonly StringBuilder _textBuffer = new();
+    private readonly object _bufferLock = new();
+    private string _textBuffer = "";
+    private System.Threading.Timer? _flushTimer;
 
     private IntPtr _targetHwnd;
     private long _lastActionMs;
     private bool _disposed;
+    private uint _lastBufferedVkCode;
+    private volatile bool _isPaused = false;
 
     // ═══════════════════════════════════════════════
     //  EVENTS
@@ -70,12 +80,14 @@ public sealed class MacroRecorder : IDisposable
 
         _targetHwnd = targetHwnd;
         _recordedActions.Clear();
-        _textBuffer.Clear();
+        lock (_bufferLock) { _textBuffer = ""; }
         _lastActionMs = 0;
+        _lastBufferedVkCode = 0;
 
         _hookManager.MouseClicked += OnMouseClicked;
         _hookManager.KeyPressed += OnKeyPressed;
         _hookManager.KeyPressedFull += OnKeyPressedFull;
+        _hookManager.SetSpecialKeyCallbacks(QueueChar, HandleBackspace, OnHotkey);
 
         _stopwatch.Restart();
         _hookManager.StartRecording();
@@ -94,6 +106,9 @@ public sealed class MacroRecorder : IDisposable
         _hookManager.StopRecording();
         _stopwatch.Stop();
 
+        _flushTimer?.Dispose();
+        _flushTimer = null;
+
         _hookManager.MouseClicked -= OnMouseClicked;
         _hookManager.KeyPressed -= OnKeyPressed;
         _hookManager.KeyPressedFull -= OnKeyPressedFull;
@@ -110,6 +125,7 @@ public sealed class MacroRecorder : IDisposable
 
     private void OnMouseClicked(int screenX, int screenY, bool isRightClick)
     {
+        if (_isPaused) return;
         if (!Win32Api.GetWindowRect(_targetHwnd, out var rect))
             return;
 
@@ -142,22 +158,118 @@ public sealed class MacroRecorder : IDisposable
 
     private void OnKeyPressed(uint vkCode, char ch)
     {
+        if (_isPaused) return;
         if (vkCode == VK_F10)
         {
             StopKeyPressed?.Invoke();
             return;
         }
 
-        if (ch == '\0' || char.IsControl(ch))
+        // Backspace: routed to HandleBackspace()
+        if (vkCode == 0x08)
+        {
+            HandleBackspace();
+            return;
+        }
+
+        // Treat control chars (including carriage return from Enter) as non-printable —
+        // they trigger their own KeyPressAction and must flush the buffer first.
+        if (ch == '\0' || ch == '\r' || ch == '\n' || char.IsControl(ch))
         {
             FlushTextBuffer();
             return;
         }
 
-        if (_textBuffer.Length == 0)
-            AddWaitIfNeeded();
+        QueueChar(ch);
+    }
 
-        _textBuffer.Append(ch);
+    public void QueueChar(char c)
+    {
+        if (_isPaused) return;
+        lock (_bufferLock)
+        {
+            if (_textBuffer.Length == 0)
+                AddWaitIfNeeded();
+
+            _textBuffer += c;
+            _lastBufferedVkCode = (uint)c;
+            ResetFlushTimer();
+        }
+        Log?.Invoke($"  [Buffer+] '{c}' ({((int)c):X4}). Current: \"{_textBuffer}\"");
+    }
+
+    public void HandleBackspace()
+    {
+        if (_isPaused) return;
+        lock (_bufferLock)
+        {
+            if (_textBuffer.Length > 0)
+            {
+                // Unikey is deleting the base char to replace it. Do NOT record this backspace.
+                _textBuffer = _textBuffer[..^1];
+                ResetFlushTimer();
+                return;
+            }
+        }
+
+        // If buffer is empty, this is a real user backspace
+        FlushTextBuffer();
+        _recordedActions.Add(new KeyPressAction
+        {
+            VirtualKeyCode = 0x08,
+            ScanCode = 0,
+            KeyName = "Back",
+            Modifiers = new KeyModifiers(),
+            HoldDurationMs = 50
+        });
+        Log?.Invoke($"  KeyPress [Back] VK=0x08");
+        ActionRecorded?.Invoke(_recordedActions.Count);
+    }
+
+    private void ResetFlushTimer()
+    {
+        _flushTimer?.Dispose();
+        _flushTimer = new System.Threading.Timer(_ =>
+        {
+            try { System.Windows.Application.Current?.Dispatcher.InvokeAsync(FlushTextBuffer); }
+            catch { }
+        }, null, 400, Timeout.Infinite);
+    }
+
+    public void ClearTextBuffer()
+    {
+        lock (_bufferLock)
+        {
+            _textBuffer = "";
+            _flushTimer?.Dispose();
+        }
+    }
+
+    private void OnHotkey()
+    {
+        System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+        {
+            ClearTextBuffer();
+            _isPaused = true;
+
+            try
+            {
+                var dialog = new InputDialog("Nhập liệu thủ công", "Nhập văn bản muốn chèn vào macro:");
+                dialog.Owner = System.Windows.Application.Current.MainWindow;
+                dialog.Topmost = true;
+
+                if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.InputText))
+                {
+                    _recordedActions.Add(new TypeAction { Text = dialog.InputText });
+                    Log?.Invoke($"  [Nhập liệu thủ công] \"{dialog.InputText}\"");
+                    ActionRecorded?.Invoke(_recordedActions.Count);
+                }
+            }
+            finally
+            {
+                _isPaused = false;
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════
@@ -166,18 +278,40 @@ public sealed class MacroRecorder : IDisposable
 
     private void OnKeyPressedFull(uint vkCode, uint scanCode, bool shift, bool ctrl, bool alt)
     {
+        if (_isPaused) return;
         if (vkCode == VK_F10)
         {
             StopKeyPressed?.Invoke();
             return;
         }
 
-        // Skip pure modifier key presses (they're tracked for combo building only)
-        if (MODIFIER_KEYS.Contains(vkCode))
+        // Skip Unikey internal keys, modifiers, and IME keys
+        if (SKIP_KEYS.Contains(vkCode))
             return;
 
-        // Only printable chars go into the text buffer; everything else → KeyPressAction
+        // Skip VK_BACK — handled by OnBackspace()
+        if (vkCode == 0x08)
+            return;
+
+        // Skip printable chars — handled by OnKeyPressed text buffer
+        char? printable = TryGetPrintableChar(vkCode, shift, ctrl, alt);
+        if (printable.HasValue && !ctrl && !alt)
+            return;
+
+        // Skip if this VK code was already buffered as a printable char in OnKeyPressed.
+        // OnKeyPressed and OnKeyPressedFull both fire for every keydown.
+        // Without this guard, a printable key would create both a TypeAction (from the
+        // buffer) AND a KeyPressAction, doubling every character.
+        if (_lastBufferedVkCode == vkCode)
+        {
+            _lastBufferedVkCode = 0;
+            return;
+        }
+        _lastBufferedVkCode = 0;
+
+        // Only non-printable keys reach here → KeyPressAction
         FlushTextBuffer();
+        AddWaitIfNeeded();
 
         var key = KeyInterop.KeyFromVirtualKey((int)vkCode);
         string keyName = key.ToString();
@@ -201,20 +335,72 @@ public sealed class MacroRecorder : IDisposable
         ActionRecorded?.Invoke(_recordedActions.Count);
     }
 
+    /// <summary>
+    /// Returns the printable character for a virtual-key code, or null if the key
+    /// has no printable representation (arrows, function keys, etc.).
+    /// Uses ToUnicode to translate through the current keyboard layout.
+    /// </summary>
+    private static char? TryGetPrintableChar(uint vkCode, bool shift, bool ctrl, bool alt)
+    {
+        if (ctrl || alt) return null; // Ctrl+A, Alt+F4, etc. are not printable
+
+        // Get keyboard state
+        var keyState = new byte[256];
+        if (!GetKeyboardState(keyState))
+            return null;
+
+        // Set shift state
+        if (shift)
+            keyState[0x10] = 0x80;
+        else
+            keyState[0x10] = 0;
+
+        uint scanCode = MapVirtualKey(vkCode, 0);
+        var sb = new System.Text.StringBuilder(4);
+        int result = ToUnicode(vkCode, scanCode, keyState, sb, sb.Capacity, 0);
+
+        if (result > 0)
+        {
+            char ch = sb[0];
+            if (!char.IsControl(ch))
+                return ch;
+        }
+        return null;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+    [DllImport("user32.dll")]
+    private static extern int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
+        [Out, MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pwszBuff, int cchBuff, uint wFlags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetKeyboardState(byte[] lpKeyState);
+
     // ═══════════════════════════════════════════════
     //  HELPERS
     // ═══════════════════════════════════════════════
 
     private void FlushTextBuffer()
     {
-        if (_textBuffer.Length == 0) return;
+        string toFlush;
+        lock (_bufferLock)
+        {
+            if (string.IsNullOrEmpty(_textBuffer)) return;
+            toFlush = _textBuffer;
+            _textBuffer = "";
+        }
 
-        var type = new TypeAction { Text = _textBuffer.ToString() };
+        _flushTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _flushTimer?.Dispose();
+        _flushTimer = null;
+
+        var type = new TypeAction { Text = toFlush };
         _recordedActions.Add(type);
-
-        Log?.Invoke($"  TypeText \"{type.Text}\"");
+        Log?.Invoke($"  [Ghi nhận gõ chữ] \"{toFlush}\"");
         ActionRecorded?.Invoke(_recordedActions.Count);
-        _textBuffer.Clear();
     }
 
     private void AddWaitIfNeeded()

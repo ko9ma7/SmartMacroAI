@@ -49,6 +49,11 @@ public sealed class GlobalHookManager : IDisposable
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
 
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    private const int VK_CONTROL = 0x11;
+
     // ═══════════════════════════════════════════════
     //  HOOK STRUCTURES
     // ═══════════════════════════════════════════════
@@ -85,20 +90,28 @@ public sealed class GlobalHookManager : IDisposable
     /// <summary>
     /// Fires on every key-down. Provides both the virtual-key code and the
     /// translated Unicode character ('\0' if non-printable).
+    /// For Unikey VK_PACKET (0xE7), the character is extracted from the scanCode field.
     /// </summary>
     public event Action<uint, char>? KeyPressed;
 
     /// <summary>
     /// Fires on every key-down with full details: virtual-key code, scan code,
     /// and current modifier-key state. Use this for KeyPressAction recording.
+    /// NOTE: For VK_PACKET (0xE7) and VK_BACK (0x08), this event is NOT fired;
+    /// instead the special char/backspace callbacks are used to prevent double-fire.
     /// </summary>
     public event Action<uint, uint, bool, bool, bool>? KeyPressedFull;
+
+    private Action<char>? _queueCharCallback;
+    private Action? _handleBackspaceCallback;
+    private Action? _hotkeyCallback;
 
     // ═══════════════════════════════════════════════
     //  STATE
     // ═══════════════════════════════════════════════
 
     public bool IsRecording { get; private set; }
+    public bool IsPaused { get; set; }
 
     private IntPtr _mouseHookHandle;
     private IntPtr _keyboardHookHandle;
@@ -107,6 +120,17 @@ public sealed class GlobalHookManager : IDisposable
     private LowLevelHookProc? _keyboardProc;
 
     private bool _disposed;
+
+    /// <summary>
+    /// Registers callbacks for special keys (VK_PACKET char, VK_BACK, and hotkeys) to avoid
+    /// double-firing through the event system. Set before StartRecording().
+    /// </summary>
+    public void SetSpecialKeyCallbacks(Action<char>? queueChar, Action? handleBackspace, Action? hotkeyCallback)
+    {
+        _queueCharCallback = queueChar;
+        _handleBackspaceCallback = handleBackspace;
+        _hotkeyCallback = hotkeyCallback;
+    }
 
     // ═══════════════════════════════════════════════
     //  START / STOP
@@ -156,6 +180,8 @@ public sealed class GlobalHookManager : IDisposable
 
         _mouseProc = null;
         _keyboardProc = null;
+        _queueCharCallback = null;
+        _handleBackspaceCallback = null;
         IsRecording = false;
     }
 
@@ -165,6 +191,9 @@ public sealed class GlobalHookManager : IDisposable
 
     private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
+        if (nCode >= 0 && IsPaused)
+            return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+
         if (nCode >= 0)
         {
             int msg = (int)wParam;
@@ -179,12 +208,47 @@ public sealed class GlobalHookManager : IDisposable
 
     private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
+        // If paused (dialog is open), let keys pass through without recording
+        if (nCode >= 0 && IsPaused)
+            return CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
+
         if (nCode >= 0)
         {
             int msg = (int)wParam;
             if (msg is WM_KEYDOWN or WM_SYSKEYDOWN)
             {
                 var data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+
+                // Skip injected keys EXCEPT Unikey's VK_PACKET (0xE7) and injected Backspace (0x08)
+                bool isInjected = (data.flags & 0x10) != 0;
+                if (isInjected && data.vkCode != 0xE7 && data.vkCode != 0x08)
+                    return CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
+
+                // Check for Ctrl+T hotkey — use GetAsyncKeyState for physical modifier state
+                bool isKeyDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+                if (isKeyDown && data.vkCode == 0x54 && (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+                {
+                    _hotkeyCallback?.Invoke();
+                    return (IntPtr)1; // Block the key from reaching the target app
+                }
+
+                // Handle VK_PACKET — Unikey sends composed Unicode via KEYEVENTF_UNICODE.
+                // The actual Unicode character is stored in the scanCode field.
+                if (data.vkCode == 0xE7)
+                {
+                    char unikeyChar = (char)data.scanCode;
+                    if (unikeyChar > 31)
+                        _queueCharCallback?.Invoke(unikeyChar);
+                    return CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
+                }
+
+                // Handle Backspace — both physical and Unikey-injected
+                if (data.vkCode == 0x08)
+                {
+                    _handleBackspaceCallback?.Invoke();
+                    return CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
+                }
+
                 char ch = VkCodeToChar(data.vkCode, data.scanCode);
                 KeyPressed?.Invoke(data.vkCode, ch);
 

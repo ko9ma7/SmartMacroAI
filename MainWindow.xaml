@@ -1754,7 +1754,21 @@
             <Border Grid.Row="3" Background="{StaticResource MantelBrush}" BorderBrush="{StaticResource Surface0Brush}" BorderThickness="0,1,0,0">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="8,4,8,2">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource SidebarButtonStyle}" Content="{DynamicResource ui_Log_Clear}" Click="BtnClearLog_Click" FontSize="11" Padding="6,2" />
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Button x:Name="BtnCopyLog"
+                                    Content="📋 Copy Log"
+                                    Click="BtnCopyLog_Click"
+                                    ToolTip="Copy toàn bộ log ra clipboard"
+                                    Padding="8,2"
+                                    Margin="0,0,6,0"
+                                    Background="#2a2a3a"
+                                    Foreground="#CDD6F4"
+                                    BorderBrush="#444466"
+                                    BorderThickness="1"
+                                    Cursor="Hand"
+                                    FontSize="10" />
+                            <Button DockPanel.Dock="Right" Style="{StaticResource SidebarButtonStyle}" Content="{DynamicResource ui_Log_Clear}" Click="BtnClearLog_Click" FontSize="11" Padding="6,2" />
+                        </StackPanel>
                         <TextBlock Text="{DynamicResource ui_LogConsole}" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource OverlayBrush}" VerticalAlignment="Center" />
                     </DockPanel>
                     <ScrollViewer x:Name="LogScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="8,0,8,4">

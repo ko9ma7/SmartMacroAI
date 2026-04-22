@@ -68,6 +68,9 @@ public partial class MainWindow : Window
     private readonly Dictionary<IntPtr, string> _hiddenWindows = new();
     private readonly ObservableCollection<StealthWindowVm> _stealthRows = [];
 
+    // ── Run guard: prevent concurrent macro execution via atomic counter ──
+    private int _macroStartCount;
+
     private string _activeView = "Dashboard";
     private bool _suppressLanguageCombo;
 
@@ -78,7 +81,7 @@ public partial class MainWindow : Window
     // ── Update Checker ──
     /// <summary>Fallback display / parse if assembly version is unavailable.</summary>
     public static string AppVersion => CurrentVersion;
-    private const string CurrentVersion   = "v1.4.0";
+    private const string CurrentVersion   = "v1.5.0";
     private const string GitHubApiUrl     = "https://api.github.com/repos/TroniePh/SmartMacroAI/releases/latest";
     private const string LandingPageUrl   = "https://tronieph.github.io/SmartMacroAI-Website/";
     /// <summary>GitHub rejects API calls without a descriptive User-Agent.</summary>
@@ -136,6 +139,9 @@ public partial class MainWindow : Window
             NotificationList.ItemsSource = NotificationService.Instance.Notifications;
             UpdateNotificationBadge();
             NotificationService.Instance.Notifications.CollectionChanged += (s, args) => Dispatcher.Invoke(UpdateNotificationBadge);
+
+            // Load dashboard after window is fully rendered
+            Dispatcher.InvokeAsync(LoadDashboard, System.Windows.Threading.DispatcherPriority.Background);
         }
         catch (Exception ex)
         {
@@ -302,11 +308,14 @@ public partial class MainWindow : Window
             _stealthRows.Add(new StealthWindowVm { Hwnd = hwnd, WindowTitle = title, IsHidden = true });
         }
 
-        foreach (var (hwnd, title) in Win32Api.GetAllVisibleWindows())
+        foreach (var win in Win32Api.GetAllVisibleWindows())
         {
-            if (hwnd == myHwnd) continue;
-            if (_hiddenWindows.ContainsKey(hwnd)) continue;
-            _stealthRows.Add(new StealthWindowVm { Hwnd = hwnd, WindowTitle = title, IsHidden = false });
+            if (win.Handle == myHwnd) continue;
+            if (_hiddenWindows.ContainsKey(win.Handle)) continue;
+            string displayTitle = string.IsNullOrWhiteSpace(win.Title)
+                ? $"[{win.ProcessName}]"
+                : win.Title;
+            _stealthRows.Add(new StealthWindowVm { Hwnd = win.Handle, WindowTitle = displayTitle, IsHidden = false });
         }
     }
 
@@ -1351,8 +1360,11 @@ public partial class MainWindow : Window
 
     private async void DashboardStart_Click(object sender, RoutedEventArgs e)
     {
+        if (Interlocked.Increment(ref _macroStartCount) != 1)
+        { Interlocked.Decrement(ref _macroStartCount); return; }
         if (sender is not Button { DataContext: DashboardRowVm row }) return;
-        await RunDashboardMacroAsync(row);
+        try { await RunDashboardMacroAsync(row); }
+        finally { Interlocked.Decrement(ref _macroStartCount); }
     }
 
     /// <summary>
@@ -1404,7 +1416,7 @@ public partial class MainWindow : Window
         row.Engine.Log += msg => Dispatcher.Invoke(() =>
         {
             AppendLog($"[{row.MacroName}] {msg}");
-            if (msg.Contains("Waiting")) row.Status = "Waiting";
+            if (msg.Contains("Waiting") || msg.Contains("CSV Row")) row.Status = "Waiting";
             else if (msg.Contains("Iteration")) row.Status = "Running";
         });
         row.Engine.ExecutionFinished += () => Dispatcher.Invoke(() =>
@@ -1412,7 +1424,6 @@ public partial class MainWindow : Window
             _runsToday++;
             row.IsRunning = false;
             row.Status = "Ready";
-            RestoreStealthWindow(row);
             UpdateProcessBar();
             AppendLog($"[{row.MacroName}] Hoàn tất.");
         });
@@ -1420,17 +1431,10 @@ public partial class MainWindow : Window
         {
             row.IsRunning = false;
             row.Status = "Error";
-            RestoreStealthWindow(row);
             UpdateProcessBar();
             AppendLog($"[{row.MacroName}] Lỗi: {ex.Message}");
         });
         var startTime = DateTime.Now;
-        row.Engine.Log += msg => Dispatcher.Invoke(() =>
-        {
-            AppendLog($"[{row.MacroName}] {msg}");
-            if (msg.Contains("Waiting")) row.Status = "Waiting";
-            else if (msg.Contains("Iteration") || msg.Contains("CSV Row")) row.Status = "Running";
-        });
 
         try
         {
@@ -2787,31 +2791,34 @@ public partial class MainWindow : Window
         return Win32Api.FindWindowByPartialTitle(partialTitle);
     }
 
-    private List<WindowEntry> GetWindowEntries() =>
-        Win32Api.GetAllVisibleWindows()
-            .Where(w => w.Title != Title)
-            .Select(w =>
+    private List<WindowEntry> GetWindowEntries()
+    {
+        IntPtr myHwnd = new WindowInteropHelper(this).Handle;
+        return Win32Api.GetAllVisibleWindows()
+            .Where(w => w.Handle != IntPtr.Zero && w.Handle != myHwnd)
+            .Select(w => new WindowEntry
             {
-                Win32Api.GetWindowThreadProcessId(w.Handle, out uint pid);
-                string procName;
-                try { using var p = Process.GetProcessById((int)pid); procName = p.ProcessName; }
-                catch { procName = "???"; }
-                return new WindowEntry
-                {
-                    Handle = w.Handle,
-                    ProcessId = (int)pid,
-                    ProcessName = procName,
-                    Title = w.Title,
-                };
+                Handle = w.Handle,
+                ProcessId = w.Pid,
+                ProcessName = w.ProcessName,
+                Title = string.IsNullOrWhiteSpace(w.Title)
+                    ? $"[{w.ProcessName}] (no title)"
+                    : w.Title,
+                ClassName = w.ClassName,
             })
-            .OrderBy(e => e.ProcessName)
-            .ThenBy(e => e.ProcessId)
             .ToList();
+    }
 
-    private List<string> GetWindowTitles() =>
-        Win32Api.GetAllVisibleWindows()
-            .Where(w => w.Title != Title)
-            .Select(w => w.Title).ToList();
+    private List<string> GetWindowTitles()
+    {
+        IntPtr myHwnd = new WindowInteropHelper(this).Handle;
+        return Win32Api.GetAllVisibleWindows()
+            .Where(w => w.Handle != IntPtr.Zero && w.Handle != myHwnd)
+            .Select(w => string.IsNullOrWhiteSpace(w.Title)
+                ? $"[{w.ProcessName}] (no title)"
+                : w.Title)
+            .ToList();
+    }
 
     private void PopulateWindowCombo(ComboBox cmb)
     {
@@ -3002,47 +3009,60 @@ public partial class MainWindow : Window
 
     private async void BtnRunMacro_Click(object sender, RoutedEventArgs e)
     {
-        // Check password lock before running
-        if (!CheckMacroLock(_currentScript, "chạy"))
-        {
-            ShowToast("Bạn cần nhập mật khẩu để chạy macro này.", isError: true);
-            return;
-        }
-
-        SyncUiToScript();
-        if (_actions.Count == 0) { ShowToast("No actions to run.", isError: true); return; }
-        if (string.IsNullOrWhiteSpace(_currentScript.TargetWindowTitle) && _editorTargetHwnd == IntPtr.Zero)
-        { ShowToast("Set a Target Window Title.", isError: true); return; }
-
-        IntPtr editorHwnd = (_editorTargetHwnd != IntPtr.Zero && Win32Api.IsWindow(_editorTargetHwnd))
-            ? _editorTargetHwnd
-            : ResolveHwnd(_currentScript.TargetWindowTitle);
-        if (editorHwnd == IntPtr.Zero) { ShowToast("Target window not found (even in hidden list).", isError: true); return; }
-
-        SetRunningState(true);
-        _cts = new CancellationTokenSource();
-        _macroEngine = new MacroEngine { HardwareMode = ChkHardwareMode.IsChecked == true };
-        _macroEngine.DataRows = _csvDataRows;
-        _macroEngine.Log += msg => Dispatcher.Invoke(() => AppendLog(msg));
-        _macroEngine.ActionStarted += (action, idx) => Dispatcher.Invoke(() =>
-            TxtStatus.Text = $"{LanguageManager.GetString("ui_Status_Running")} [{idx}] {action.DisplayName}");
-        _macroEngine.DataRowCompleted += (rowNum, total) => Dispatcher.Invoke(() =>
-            TxtStatus.Text = $"CSV Row {rowNum}/{total} done");
-        _macroEngine.ExecutionFinished += () => Dispatcher.Invoke(() => { _runsToday++; SetRunningState(false); ShowToast("Macro completed.", isError: false); UpdateProcessBar(); });
-        _macroEngine.ExecutionFaulted += ex => Dispatcher.Invoke(() => { SetRunningState(false); ShowToast($"Error: {ex.Message}", isError: true); UpdateProcessBar(); });
+        if (Interlocked.Increment(ref _macroStartCount) != 1)
+        { Interlocked.Decrement(ref _macroStartCount); return; }
 
         try
         {
-            AppendLog($"Starting macro \"{_currentScript.Name}\"...");
-            await _macroEngine.ExecuteScriptAsync(_currentScript, editorHwnd, _cts.Token);
+            // Check password lock before running
+            if (!CheckMacroLock(_currentScript, "chạy"))
+            {
+                ShowToast("Bạn cần nhập mật khẩu để chạy macro này.", isError: true);
+                Interlocked.Decrement(ref _macroStartCount);
+                return;
+            }
+
+            SyncUiToScript();
+            if (_actions.Count == 0) { ShowToast("No actions to run.", isError: true); Interlocked.Decrement(ref _macroStartCount); return; }
+            if (string.IsNullOrWhiteSpace(_currentScript.TargetWindowTitle) && _editorTargetHwnd == IntPtr.Zero)
+            { ShowToast("Set a Target Window Title.", isError: true); Interlocked.Decrement(ref _macroStartCount); return; }
+
+            IntPtr editorHwnd = (_editorTargetHwnd != IntPtr.Zero && Win32Api.IsWindow(_editorTargetHwnd))
+                ? _editorTargetHwnd
+                : ResolveHwnd(_currentScript.TargetWindowTitle);
+            if (editorHwnd == IntPtr.Zero) { ShowToast("Target window not found (even in hidden list).", isError: true); Interlocked.Decrement(ref _macroStartCount); return; }
+
+            SetRunningState(true);
+            _cts = new CancellationTokenSource();
+            _macroEngine = new MacroEngine { HardwareMode = ChkHardwareMode.IsChecked == true };
+            _macroEngine.DataRows = _csvDataRows;
+            _macroEngine.Log += msg => Dispatcher.Invoke(() => AppendLog(msg));
+            _macroEngine.ActionStarted += (action, idx) => Dispatcher.Invoke(() =>
+                TxtStatus.Text = $"{LanguageManager.GetString("ui_Status_Running")} [{idx}] {action.DisplayName}");
+            _macroEngine.DataRowCompleted += (rowNum, total) => Dispatcher.Invoke(() =>
+                TxtStatus.Text = $"CSV Row {rowNum}/{total} done");
+            _macroEngine.ExecutionFinished += () => Dispatcher.Invoke(() => { _runsToday++; SetRunningState(false); ShowToast("Macro completed.", isError: false); UpdateProcessBar(); });
+            _macroEngine.ExecutionFaulted += ex => Dispatcher.Invoke(() => { SetRunningState(false); ShowToast($"Error: {ex.Message}", isError: true); UpdateProcessBar(); });
+
+            try
+            {
+                AppendLog($"Starting macro \"{_currentScript.Name}\"...");
+                await _macroEngine.ExecuteScriptAsync(_currentScript, editorHwnd, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                bool autoStop = _currentScript.AutoStopMinutes > 0 && _cts is { Token.IsCancellationRequested: false };
+                ShowToast(autoStop ? "Macro stopped (auto-stop timer)." : "Macro stopped by user.", isError: false);
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"[CRITICAL] Macro crashed: {ex.Message}");
+                AppendLog($"[StackTrace] {ex.StackTrace}");
+                ShowToast($"Error: {ex.Message}", isError: true);
+            }
+            finally { SetRunningState(false); UpdateProcessBar(); }
         }
-        catch (OperationCanceledException)
-        {
-            bool autoStop = _currentScript.AutoStopMinutes > 0 && _cts is { Token.IsCancellationRequested: false };
-            ShowToast(autoStop ? "Macro stopped (auto-stop timer)." : "Macro stopped by user.", isError: false);
-        }
-        catch (Exception ex) { ShowToast($"Error: {ex.Message}", isError: true); }
-        finally { SetRunningState(false); UpdateProcessBar(); }
+        finally { Interlocked.Decrement(ref _macroStartCount); }
     }
 
     private void BtnStopMacro_Click(object sender, RoutedEventArgs e) { _cts?.Cancel(); AppendLog("Stop requested."); }
@@ -3497,6 +3517,37 @@ public partial class MainWindow : Window
     }
 
     private void BtnClearLog_Click(object sender, RoutedEventArgs e) => TxtLogConsole.Text = string.Empty;
+
+    private void BtnCopyLog_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string logText = TxtLogConsole.Text;
+
+            if (string.IsNullOrWhiteSpace(logText))
+            {
+                MessageBox.Show("Log trống.", "Copy Log", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            System.Windows.Clipboard.SetText(logText);
+
+            // Brief visual feedback
+            string savedContent = BtnCopyLog.Content?.ToString() ?? "";
+            BtnCopyLog.Content = "✅ Đã copy!";
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            timer.Tick += (s, _) =>
+            {
+                BtnCopyLog.Content = savedContent;
+                timer.Stop();
+            };
+            timer.Start();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không thể copy: {ex.Message}", "Lỗi", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 
     private void Hyperlink_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
     {

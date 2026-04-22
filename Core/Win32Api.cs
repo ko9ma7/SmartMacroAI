@@ -263,13 +263,31 @@ public static class Win32Api
     //  to defeat apps that reject instant PostMessage clicks.
     // ═══════════════════════════════════════════════
 
-    public static async Task ControlClickAsync(IntPtr hWnd, int x, int y)
+    /// <summary>
+    /// PostMessage-based left click with longer pre-click delay for hidden/minimized windows.
+    /// Sends WM_MOUSEMOVE first to establish position, then a staggered click sequence.
+    /// </summary>
+    public static async Task ControlClickAsync(IntPtr hWnd, int x, int y, int moveDelayMs = 10)
     {
         IntPtr lParam = MakeLParam(x, y);
         PostMessage(hWnd, WM_MOUSEMOVE, IntPtr.Zero, lParam);
-        await Task.Delay(10);
+        await Task.Delay(moveDelayMs);
         PostMessage(hWnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, lParam);
         await Task.Delay(Random.Shared.Next(20, 50));
+        PostMessage(hWnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
+    }
+
+    /// <summary>
+    /// Stealth-aware click: extra delay after WM_MOUSEMOVE for hidden windows,
+    /// then a staggered DOWN → HOLD → UP sequence.
+    /// </summary>
+    public static async Task StealthClickAsync(IntPtr hWnd, int x, int y)
+    {
+        IntPtr lParam = MakeLParam(x, y);
+        PostMessage(hWnd, WM_MOUSEMOVE, IntPtr.Zero, lParam);
+        await Task.Delay(50); // longer delay for hidden/minimized windows
+        PostMessage(hWnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, lParam);
+        await Task.Delay(50);
         PostMessage(hWnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
     }
 
@@ -463,25 +481,79 @@ public static class Win32Api
     }
 
     /// <summary>
-    /// Returns all visible top-level windows with non-empty titles.
-    /// Used by the UI to populate target-window pickers.
+    /// Represents a window discovered during enumeration.
+    /// Includes class name and process name so Electron/Chromium windows
+    /// (which may have no title) can still be identified.
     /// </summary>
-    public static List<(IntPtr Handle, string Title)> GetAllVisibleWindows()
+    public sealed class WindowInfo
     {
-        var windows = new List<(IntPtr, string)>();
+        public IntPtr Handle { get; init; }
+        public string Title { get; init; } = "";
+        public string ClassName { get; init; } = "";
+        public string ProcessName { get; init; } = "";
+        public int Pid { get; init; }
+    }
 
-        EnumWindows((hWnd, _) =>
+    /// <summary>
+    /// Returns all visible top-level windows including Electron/Chromium windows
+    /// that have no title. Used by the UI to populate target-window pickers.
+    /// </summary>
+    public static List<WindowInfo> GetAllVisibleWindows()
+    {
+        var result = new List<WindowInfo>();
+
+        EnumWindows((hwnd, _) =>
         {
-            if (IsWindowVisible(hWnd))
+            if (!IsWindowVisible(hwnd)) return true;
+
+            var titleSb = new StringBuilder(256);
+            GetWindowText(hwnd, titleSb, 256);
+            string title = titleSb.ToString();
+
+            var classSb = new StringBuilder(256);
+            GetClassName(hwnd, classSb, 256);
+            string className = classSb.ToString();
+
+            GetWindowThreadProcessId(hwnd, out uint pid);
+            string processName = "";
+            try { processName = Process.GetProcessById((int)pid).ProcessName; }
+            catch { return true; }
+
+            // Include if: has title OR is a known browser/Electron/process
+            bool isKnownBrowser = processName.Contains("discord", StringComparison.OrdinalIgnoreCase) ||
+                                  processName.Contains("chrome", StringComparison.OrdinalIgnoreCase) ||
+                                  processName.Contains("msedge", StringComparison.OrdinalIgnoreCase) ||
+                                  processName.Contains("firefox", StringComparison.OrdinalIgnoreCase) ||
+                                  processName.Contains("opera", StringComparison.OrdinalIgnoreCase) ||
+                                  processName.Contains("brave", StringComparison.OrdinalIgnoreCase) ||
+                                  processName.Contains("electron", StringComparison.OrdinalIgnoreCase) ||
+                                  processName.Contains("cef", StringComparison.OrdinalIgnoreCase);
+
+            bool isElectronClass = className.Contains("Chrome_WidgetWin", StringComparison.OrdinalIgnoreCase) ||
+                                   className.Contains("CefBrowserWindow", StringComparison.OrdinalIgnoreCase) ||
+                                   className.Contains("MozillaWindowClass", StringComparison.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(title) || isKnownBrowser || isElectronClass)
             {
-                string title = GetWindowTitle(hWnd);
-                if (!string.IsNullOrWhiteSpace(title))
-                    windows.Add((hWnd, title));
+                result.Add(new WindowInfo
+                {
+                    Handle = hwnd,
+                    Title = title,
+                    ClassName = className,
+                    ProcessName = processName,
+                    Pid = (int)pid
+                });
             }
+
             return true;
         }, IntPtr.Zero);
 
-        return windows;
+        // Sort: named windows first, then by process name
+        return result
+            .OrderBy(w => string.IsNullOrWhiteSpace(w.Title) ? 1 : 0)
+            .ThenBy(w => w.ProcessName)
+            .ThenBy(w => w.Title)
+            .ToList();
     }
 
     /// <summary>

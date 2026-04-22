@@ -11,6 +11,7 @@ public sealed class WindowEntry
     public int ProcessId { get; init; }
     public string ProcessName { get; init; } = "";
     public string Title { get; init; } = "";
+    public string ClassName { get; init; } = "";
 
     /// <summary>
     /// The ComboBox displays this when IsEditable = True.

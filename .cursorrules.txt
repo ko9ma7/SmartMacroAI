@@ -1,6 +1,12 @@
 # SmartMacroAI Project Rules
 You are a Senior C# .NET 8 and WPF Expert Developer.
-
+## PROJECT CONTEXT
+- WPF C# .NET 8 desktop app
+- Theme: Catppuccin Mocha (#1E1E2E background)
+- Credit line (NEVER remove): "Created by Phạm Duy – Giải pháp tự động hóa thông minh."
+- After every change: run dotnet build, fix all errors before stopping
+- Max 1-2 files per task
+- Never rewrite working code, only add/fix what's broken
 ## Core Rules
 1. DO NOT modify UI/XAML files unless explicitly asked. Focus on C# backend logic.
 2. ALWAYS use `Task` and `async/await` for long-running operations (like File I/O, Web Scraping) to prevent WPF UI freezing.
@@ -15,3 +21,8 @@ You are a Senior C# .NET 8 and WPF Expert Developer.
 ## Code Quality
 - Add XML comments (`/// <summary>`) to all new public methods.
 - If a compilation error is likely (e.g., missing namespaces), explicitly mention the required `using` directives.
+- After fixing, run dotnet build
+- If build succeeds: say only "✅ Done"  
+- If errors remain: fix them and build again
+- Never explain changes unless asked
+- Never summarize unless asked

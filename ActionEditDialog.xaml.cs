@@ -967,19 +967,21 @@ public partial class ActionEditDialog : Window
         };
         var rbSendInput = new System.Windows.Controls.RadioButton
         {
-            Content = "SendInput (Chrome, Electron, VS Code)",
+            Content = "⚡ SendInput (Discord, Chrome, Electron, VS Code)",
             IsChecked = kpa.InputMode == KeyInputMode.SendInput,
             Foreground = InputFg,
             Margin = new Thickness(0, 2, 0, 2),
-            Tag = "SendInput"
+            Tag = "SendInput",
+            ToolTip = "Dùng SendInput cho Discord, trình duyệt Chromium, Electron, Unity. Cần cửa sổ ở foreground."
         };
         var rbRawInput = new System.Windows.Controls.RadioButton
         {
-            Content = "Raw Input / Scan Code (game DirectX, Anti-Cheat)",
+            Content = "🎮 Raw Input / Scan Code (game DirectX, Anti-Cheat)",
             IsChecked = kpa.InputMode == KeyInputMode.RawInput,
             Foreground = InputFg,
             Margin = new Thickness(0, 2, 0, 2),
-            Tag = "RawInput"
+            Tag = "RawInput",
+            ToolTip = "SendInput với scan code thuần cho game DirectX và Anti-Cheat. Cần cửa sổ ở foreground."
         };
 
         FieldsPanel.Children.Add(rbAuto);

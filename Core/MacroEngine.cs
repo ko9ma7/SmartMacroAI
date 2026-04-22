@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Windows.Automation;
 using WinForms = System.Windows.Forms;
 using WpfApp = System.Windows.Application;
 using SmartMacroAI.Localization;
@@ -98,12 +99,16 @@ public sealed class MacroEngine
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetKeyboardState(byte[] lpKeyState);
 
-    private const uint WM_CHAR  = 0x0102;
-    private const uint WM_CUT   = 0x0300;
-    private const uint WM_COPY  = 0x0301;
-    private const uint WM_PASTE = 0x0302;
-    private const uint WM_UNDO  = 0x0304;
-    private const uint EM_SETSEL = 0x00B1;
+    private const uint WM_KEYDOWN    = 0x0100;
+    private const uint WM_KEYUP      = 0x0101;
+    private const uint WM_CHAR      = 0x0102;
+    private const uint WM_SYSKEYDOWN = 0x0104;
+    private const uint WM_SYSKEYUP  = 0x0105;
+    private const uint WM_CUT       = 0x0300;
+    private const uint WM_COPY      = 0x0301;
+    private const uint WM_PASTE     = 0x0302;
+    private const uint WM_UNDO      = 0x0304;
+    private const uint EM_SETSEL    = 0x00B1;
 
     private PlaywrightEngine? _playwrightEngine;
 
@@ -367,6 +372,13 @@ public sealed class MacroEngine
     {
         ArgumentNullException.ThrowIfNull(script);
 
+        // Validate window handle — fail fast with a clear message instead of silent crash
+        if (hwnd != IntPtr.Zero && !Win32Api.IsWindow(hwnd))
+        {
+            OnLog("❌ [LỖI] Cửa sổ mục tiêu không tồn tại hoặc đã bị đóng! Vui lòng chọn lại cửa sổ.");
+            return;
+        }
+
         bool hasLaunch = ScriptContainsLaunchAndBind(script);
         var compat = MacroScriptValidation.ValidateScriptCompatibility(script);
         bool webOnly = compat.IsWebOnly;
@@ -462,7 +474,8 @@ public sealed class MacroEngine
             }
             catch (Exception ex)
             {
-                OnLog($"Execution faulted: {ex.Message}");
+                OnLog($"[CRITICAL] Execution faulted: {ex.Message}");
+                OnLog($"[StackTrace] {ex.StackTrace}");
                 ExecutionFaulted?.Invoke(ex);
                 FireTelegramCompletion(script, rowsDone: _totalRowsDone, total: _totalRowsTotal, hasError: true, lastErrorMessage: ex.Message);
 
@@ -1262,60 +1275,44 @@ public sealed class MacroEngine
     private async Task ExecuteClickAsync(ClickAction click, CancellationToken token)
     {
         IntPtr hwnd = _runtimeTargetHwnd;
-        var ad = AppSettings.Load();
+
+        if (!Win32Api.IsWindow(hwnd))
+        {
+            Log?.Invoke("❌ Cửa sổ mục tiêu không tồn tại. Chọn lại cửa sổ.");
+            return;
+        }
 
         if (!Win32Api.IsInsideClientArea(hwnd, click.X, click.Y))
             OnLog($"  ⚠ ({click.X},{click.Y}) is outside client rect");
 
+        // ── HARDWARE MODE: physical mouse hijack (user explicitly wants it) ──────
         if (HardwareMode)
         {
-            Point screen = Win32Api.ClientPointToScreen(hwnd, click.X, click.Y);
-            MouseProfile profile = BezierMouseMover.ParseProfile(ad.MouseProfileName);
-            var btn = click.IsRightClick ? MouseButton.Right : MouseButton.Left;
-            OnLog($"  HardwareMove+Click {btn} → screen ({screen.X},{screen.Y}) profile={profile}");
+            var pt = new Win32Api.POINT { X = click.X, Y = click.Y };
+            Win32Api.ClientToScreen(hwnd, ref pt);
 
-            try
-            {
-                await BehaviorRandomizer.MaybeScrollBeforeClickAsync(ad, HardwareMode, Random.Shared, OnLog, token)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                OnLog($"[Anti-Detection] ⚠ Scroll-before-click: {ex.Message}");
-            }
+            IntPtr prevFg = GetForegroundWindow();
+            if (prevFg != hwnd) { SetForegroundWindow(hwnd); await Task.Delay(50, token); }
 
-            try
-            {
-                if (ad.AntiDetectionEnabled
-                    && BehaviorRandomizer.RollMisclick(Random.Shared, ad.AntiDetectionMisclickPercent))
-                {
-                    int ox = Random.Shared.Next(3, 9) * (Random.Shared.Next(2) == 0 ? -1 : 1);
-                    int oy = Random.Shared.Next(3, 9) * (Random.Shared.Next(2) == 0 ? -1 : 1);
-                    Point wrong = new(screen.X + ox, screen.Y + oy);
-                    OnLog($"  [Anti-Detection] Misclick recovery → ({wrong.X},{wrong.Y}) then correct.");
-                    await _mouseMover.MoveAndClickAsync(wrong, btn, profile, token).ConfigureAwait(false);
-                    await _macroRunner.Timing.WaitAsync(Random.Shared.Next(200, 501), 80, token).ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                OnLog($"[Anti-Detection] ⚠ Misclick sim: {ex.Message}");
-            }
+            SetCursorPos(pt.X, pt.Y);
+            await Task.Delay(20, token);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+            await Task.Delay(30, token);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
 
-            await _mouseMover.MoveAndClickAsync(screen, btn, profile, token).ConfigureAwait(false);
+            if (prevFg != IntPtr.Zero && prevFg != hwnd) SetForegroundWindow(prevFg);
+            Log?.Invoke($"[Click/HW] ({click.X},{click.Y}) → screen ({pt.X},{pt.Y})");
             return;
         }
 
-        if (click.IsRightClick)
-        {
-            OnLog($"  ControlRightClick({click.X}, {click.Y})");
-            await Win32Api.ControlRightClickAsync(hwnd, click.X, click.Y);
-        }
-        else
-        {
-            OnLog($"  ControlClick({click.X}, {click.Y})");
-            await Win32Api.ControlClickAsync(hwnd, click.X, click.Y);
-        }
+        // ── DEFAULT (stealth ON or OFF): PostMessage ONLY — never hijacks mouse ─
+        IntPtr lParam = Win32Api.MakeLParam(click.X, click.Y);
+        Win32Api.PostMessage(hwnd, Win32Api.WM_MOUSEMOVE, IntPtr.Zero, lParam);
+        await Task.Delay(20, token);
+        Win32Api.PostMessage(hwnd, Win32Api.WM_LBUTTONDOWN, (IntPtr)1, lParam);
+        await Task.Delay(Math.Max(50, 50), token);
+        Win32Api.PostMessage(hwnd, Win32Api.WM_LBUTTONUP, IntPtr.Zero, lParam);
+        Log?.Invoke($"[Click/Background] ({click.X},{click.Y})");
     }
 
     private async Task ExecuteWaitAsync(WaitAction wait, CancellationToken token)
@@ -1514,6 +1511,38 @@ public sealed class MacroEngine
             return;
         }
 
+        bool stealthMode = _currentScript?.StealthMode ?? false;
+
+        // ── HARDWARE MODE: SendInput Unicode per character ────────────────────────
+        // User explicitly chose to take over mouse/keyboard for games or apps
+        // that require hardware-level input.
+        if (HardwareMode)
+        {
+            OnLog($"  TypeText/SendInput+Attach \"{Truncate(text, 40)}\"{suffix}");
+            await TypeViaSendInputAsync(hwnd, text, type.KeyDelayMs, token);
+            return;
+        }
+
+        // ── STEALTH MODE: PostMessage only (no SendInput) ──────────────────────
+        // Target window is hidden/minimized; user can use their PC.
+        // Electron apps in stealth mode: PostMessage WM_CHAR (best effort, may not work).
+        if (stealthMode)
+        {
+            OnLog($"  TypeText/Stealth \"{Truncate(text, 40)}\"{suffix}");
+            await TypeViaStealthTextAsync(target, text, type.KeyDelayMs, token);
+            return;
+        }
+
+        // ── ELECTRON / CHROMIUM: UIAutomation type (stealth, no foreground steal) ─
+        if (RequiresSendInput(hwnd))
+        {
+            await UiaTypeAsync(hwnd, text, token);
+            return;
+        }
+
+        // ── NORMAL WIN32 APPS: PostMessage ─────────────────────────────────────
+        // Target window is visible and foreground; PostMessage works perfectly.
+        // User can still use their PC while macro runs (PostMessage doesn't block).
         if (type.InputMethod == TypeInputMethod.Clipboard || type.KeyDelayMs <= 0)
         {
             await TypeViaClipboardAsync(target, text, token);
@@ -1524,6 +1553,88 @@ public sealed class MacroEngine
         }
 
         OnLog($"  TypeText \"{Truncate(text, 40)}\"{suffix}");
+    }
+
+    /// <summary>
+    /// Sends text via PostMessage in stealth mode (window hidden/minimized).
+    /// Uses WM_CHAR for printable characters — best-effort for Electron apps
+    /// since PostMessage may be ignored by the Chromium renderer.
+    /// </summary>
+    private async Task TypeViaStealthTextAsync(IntPtr target, string text, int delayMs, CancellationToken token)
+    {
+        foreach (char c in text)
+        {
+            token.ThrowIfCancellationRequested();
+            Win32Api.PostMessage(target, Win32Api.WM_CHAR, (IntPtr)c, IntPtr.Zero);
+            await Task.Delay(Math.Max(delayMs, 30), token);
+        }
+        OnLog($"    → Stealth WM_CHAR: {text.Length} ký tự (delay={delayMs}ms)");
+    }
+
+    /// <summary>
+    /// Electron-aware clipboard paste using SendInput Ctrl+V (NOT PostMessage).
+    /// Discord ignores PostMessage but accepts Ctrl+V from SendInput.
+    /// Sets foreground window first, then pastes text via clipboard.
+    /// </summary>
+    private async Task TypeViaClipboardAndPasteAsync(IntPtr hwnd, string text, CancellationToken token)
+    {
+        // Step 1: Set clipboard on UI thread
+        await WpfApp.Current.Dispatcher.InvokeAsync(() =>
+        {
+            try { System.Windows.Clipboard.SetText(text); } catch { }
+        });
+        await Task.Delay(80, token);
+
+        // Step 2: Attach to Discord's thread so PostMessage reaches its hidden window
+        uint targetThread = GetWindowThreadProcessId(hwnd, out _);
+        uint currentThread = GetCurrentThreadId();
+        bool attached = false;
+        if (targetThread != currentThread)
+        {
+            attached = AttachThreadInput(currentThread, targetThread, true);
+            await Task.Delay(20, token);
+        }
+
+        try
+        {
+            // Step 3a: Send WM_PASTE to main window
+            Win32Api.PostMessage(hwnd, WM_PASTE, IntPtr.Zero, IntPtr.Zero);
+            await Task.Delay(100, token);
+
+            // Step 3b: Also try child windows (Electron renderer)
+            EnumChildWindowsWithLogging(hwnd);
+        }
+        finally
+        {
+            if (attached)
+                AttachThreadInput(currentThread, targetThread, false);
+        }
+
+        OnLog($"    → Clipboard paste: {text.Length} ký tự → Electron app (WM_PASTE)");
+    }
+
+    /// <summary>
+    /// Enumerates child windows of an Electron window and posts WM_PASTE to
+    /// Chromium renderer children that accept it.
+    /// </summary>
+    private void EnumChildWindowsWithLogging(IntPtr parent)
+    {
+        var targetClass = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Chrome_RenderWidgetHostHWND",
+            "Intermediate",
+        };
+
+        EnumChildWindows(parent, (child, _) =>
+        {
+            string cls = Win32Api.GetWindowClassName(child);
+            if (cls.Contains("Chrome", StringComparison.OrdinalIgnoreCase) ||
+                cls.Contains("Intermediate", StringComparison.OrdinalIgnoreCase))
+            {
+                Win32Api.PostMessage(child, WM_PASTE, IntPtr.Zero, IntPtr.Zero);
+            }
+            return true;
+        }, IntPtr.Zero);
     }
 
     private async Task TypeViaClipboardAsync(IntPtr target, string text, CancellationToken token)
@@ -1568,139 +1679,221 @@ public sealed class MacroEngine
         OnLog($"    → WM_CHAR: {text.Length} ký tự (delay={delayMs}ms)");
     }
 
+    /// <summary>
+    /// Sends text via SendInput (Unicode mode) — works on Electron, Chromium, Java, Unity apps
+    /// that block PostMessage. Uses AttachThreadInput so the window does NOT need to be
+    /// foreground or visible — fully compatible with Stealth Mode.
+    /// IMPORTANT: Detach happens IMMEDIATELY after SendInput, before any await.
+    /// </summary>
+    private async Task TypeViaSendInputAsync(IntPtr hwnd, string text, int delayMs, CancellationToken token)
+    {
+        uint targetThreadId = GetWindowThreadProcessId(hwnd, out _);
+        uint ourThreadId = GetCurrentThreadId();
+
+        foreach (char ch in text)
+        {
+            token.ThrowIfCancellationRequested();
+
+            // Attach → send → detach atomically (no await while attached)
+            if (AttachThreadInput(ourThreadId, targetThreadId, true))
+            {
+                IntPtr focusedChild = GetFocusedChildWindow(hwnd);
+                SetFocus(focusedChild);
+
+                var down = new INPUT
+                {
+                    type = INPUT_KEYBOARD,
+                    u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0, wScan = ch, dwFlags = KEYEVENTF_SCANCODE, time = 0, dwExtraInfo = IntPtr.Zero } }
+                };
+                var up = new INPUT
+                {
+                    type = INPUT_KEYBOARD,
+                    u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0, wScan = ch, dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, time = 0, dwExtraInfo = IntPtr.Zero } }
+                };
+
+                SendInput(2, new[] { down, up }, Marshal.SizeOf<INPUT>());
+                ReleaseAllModifiers(); // safety: unstick any leaked modifiers
+                AttachThreadInput(ourThreadId, targetThreadId, false); // detach immediately
+            }
+
+            await Task.Delay(Math.Max(delayMs, 30), token);
+        }
+
+        OnLog($"    → SendInput+Attach/Unicode: {text.Length} ký tự");
+    }
+
     // ═══════════════════════════════════════════════
     //  SENDINPUT KEY PRESS (for Chrome, Electron, games)
     // ═══════════════════════════════════════════════
 
+    /// <summary>
+    /// Sends a key press via SendInput using VirtualKey + ScanCode.
+    /// Detaches IMMEDIATELY after SendInput (before any await) to prevent modifier state leaks.
+    /// </summary>
     private async Task ExecuteKeyPressSendInputAsync(KeyPressAction kpa, IntPtr hwnd, CancellationToken token)
     {
-        IntPtr prevForeground = GetForegroundWindow();
+        uint targetThreadId = GetWindowThreadProcessId(hwnd, out _);
+        uint ourThreadId = GetCurrentThreadId();
 
-        // Bring target window to foreground
-        if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-        ShowWindow(hwnd, SW_SHOW);
-        SetForegroundWindow(hwnd);
-        await Task.Delay(150, token);
-
-        var inputs = new List<INPUT>();
-
-        void AddKey(ushort vk, bool keyUp)
+        // Find focused child once (stable for the duration of a single key press)
+        IntPtr focusedChild;
+        if (AttachThreadInput(ourThreadId, targetThreadId, true))
         {
-            uint scanCode = MapVirtualKey(vk, 0);
-            inputs.Add(new INPUT
+            focusedChild = GetFocusedChildWindow(hwnd);
+            SetFocus(focusedChild);
+
+            var inputs = new List<INPUT>();
+
+            void AddKey(ushort vk, bool keyUp)
             {
-                type = INPUT_KEYBOARD,
-                u = new INPUTUNION
+                uint scanCode = MapVirtualKey(vk, 0);
+                inputs.Add(new INPUT
                 {
-                    ki = new KEYBDINPUT
+                    type = INPUT_KEYBOARD,
+                    u = new INPUTUNION
                     {
-                        wVk = vk,
-                        wScan = (ushort)scanCode,
-                        dwFlags = (keyUp ? KEYEVENTF_KEYUP : 0) | KEYEVENTF_SCANCODE,
-                        time = 0,
-                        dwExtraInfo = IntPtr.Zero
+                        ki = new KEYBDINPUT
+                        {
+                            wVk = vk,
+                            wScan = (ushort)scanCode,
+                            dwFlags = (keyUp ? KEYEVENTF_KEYUP : 0) | KEYEVENTF_SCANCODE,
+                            time = 0,
+                            dwExtraInfo = IntPtr.Zero
+                        }
                     }
-                }
-            });
+                });
+            }
+
+            // Modifiers down
+            if (kpa.Modifiers.Shift) AddKey(0x10, false);
+            if (kpa.Modifiers.Ctrl) AddKey(0x11, false);
+            if (kpa.Modifiers.Alt) AddKey(0x12, false);
+
+            // Main key down + up
+            AddKey((ushort)kpa.VirtualKeyCode, false);
+            AddKey((ushort)kpa.VirtualKeyCode, true);
+
+            // Modifiers up (reverse)
+            if (kpa.Modifiers.Alt) AddKey(0x12, true);
+            if (kpa.Modifiers.Ctrl) AddKey(0x11, true);
+            if (kpa.Modifiers.Shift) AddKey(0x10, true);
+
+            SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+            ReleaseAllModifiers(); // safety: unstick any leaked modifiers
+            AttachThreadInput(ourThreadId, targetThreadId, false); // detach immediately
+        }
+        else
+        {
+            focusedChild = hwnd;
         }
 
-        // Modifiers down
-        if (kpa.Modifiers.Shift) AddKey(0x10, false);
-        if (kpa.Modifiers.Ctrl) AddKey(0x11, false);
-        if (kpa.Modifiers.Alt) AddKey(0x12, false);
-
-        // Main key down + up
-        AddKey((ushort)kpa.VirtualKeyCode, false);
         await Task.Delay(Math.Max(kpa.HoldDurationMs, 50), token);
-        AddKey((ushort)kpa.VirtualKeyCode, true);
-
-        // Modifiers up (reverse)
-        if (kpa.Modifiers.Alt) AddKey(0x12, true);
-        if (kpa.Modifiers.Ctrl) AddKey(0x11, true);
-        if (kpa.Modifiers.Shift) AddKey(0x10, true);
-
-        var inputArr = inputs.ToArray();
-        SendInput((uint)inputArr.Length, inputArr, Marshal.SizeOf<INPUT>());
-
-        await Task.Delay(100, token);
-
-        // Restore previous foreground
-        if (prevForeground != IntPtr.Zero && prevForeground != hwnd)
-            SetForegroundWindow(prevForeground);
-
-        OnLog($"  KeyPress/SendInput {kpa.KeyName}");
+        OnLog($"  KeyPress/SendInput+Attach {kpa.KeyName} → child: 0x{focusedChild:X}");
     }
 
     /// <summary>
-    /// Raw Input mode: sends pure scan codes via SendInput for DirectX/Anti-Cheat games.
-    /// Brings target window to foreground and uses KEYEVENTF_SCANCODE only (wVk = 0).
+    /// Sends a key press via SendInput using pure ScanCode (no VirtualKey).
+    /// For DirectX games and Anti-Cheat systems. Detaches immediately after SendInput.
     /// </summary>
     private async Task ExecuteKeyPressRawInputAsync(KeyPressAction kpa, IntPtr hwnd, CancellationToken token)
     {
-        IntPtr prevForeground = GetForegroundWindow();
+        uint targetThreadId = GetWindowThreadProcessId(hwnd, out _);
+        uint ourThreadId = GetCurrentThreadId();
 
-        // Bring window to foreground for DirectX initialization
-        if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-        ShowWindow(hwnd, SW_SHOW);
-        SetForegroundWindow(hwnd);
-        await Task.Delay(200, token);
-
-        var inputs = new List<INPUT>();
-
-        void AddScanCode(int vk, bool keyUp)
+        IntPtr focusedChild;
+        if (AttachThreadInput(ourThreadId, targetThreadId, true))
         {
-            uint sc = MapVirtualKey((uint)vk, 0);
+            focusedChild = GetFocusedChildWindow(hwnd);
+            SetFocus(focusedChild);
 
-            // Extended key check for certain VK codes
-            bool isExtended = vk is 0x21 or 0x22 or 0x23 or 0x24 or
-                                  0x25 or 0x26 or 0x27 or 0x28 or
-                                  0x2D or 0x2E or 0xA1 or 0xA3 or 0xA5;
+            var inputs = new List<INPUT>();
 
-            uint flags = KEYEVENTF_SCANCODE;
-            if (keyUp) flags |= KEYEVENTF_KEYUP;
-            if (isExtended) flags |= 0x0001; // KEYEVENTF_EXTENDEDKEY
+            void AddScanCode(int vk, bool keyUp)
+            {
+                uint sc = MapVirtualKey((uint)vk, 0);
+                bool isExtended = vk is 0x21 or 0x22 or 0x23 or 0x24 or
+                                      0x25 or 0x26 or 0x27 or 0x28 or
+                                      0x2D or 0x2E or 0xA1 or 0xA3 or 0xA5;
+                uint flags = KEYEVENTF_SCANCODE;
+                if (keyUp) flags |= KEYEVENTF_KEYUP;
+                if (isExtended) flags |= 0x0001;
+                inputs.Add(new INPUT
+                {
+                    type = INPUT_KEYBOARD,
+                    u = new INPUTUNION
+                    {
+                        ki = new KEYBDINPUT
+                        {
+                            wVk = 0,
+                            wScan = (ushort)sc,
+                            dwFlags = flags,
+                            time = 0,
+                            dwExtraInfo = IntPtr.Zero
+                        }
+                    }
+                });
+            }
 
-            inputs.Add(new INPUT
+            if (kpa.Modifiers.Shift) AddScanCode(0x10, false);
+            if (kpa.Modifiers.Ctrl) AddScanCode(0x11, false);
+            if (kpa.Modifiers.Alt) AddScanCode(0x12, false);
+
+            AddScanCode(kpa.VirtualKeyCode, false);
+            AddScanCode(kpa.VirtualKeyCode, true);
+
+            if (kpa.Modifiers.Alt) AddScanCode(0x12, true);
+            if (kpa.Modifiers.Ctrl) AddScanCode(0x11, true);
+            if (kpa.Modifiers.Shift) AddScanCode(0x10, true);
+
+            SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+            ReleaseAllModifiers();
+            AttachThreadInput(ourThreadId, targetThreadId, false);
+        }
+        else
+        {
+            focusedChild = hwnd;
+        }
+
+        await Task.Delay(Math.Max(kpa.HoldDurationMs, 50), token);
+        OnLog($"[KeyPress/RawInput+Attach] {kpa.KeyName} SC=0x{MapVirtualKey((uint)kpa.VirtualKeyCode, 0):X2} → child: 0x{focusedChild:X}");
+    }
+
+    /// <summary>
+    /// Safety: releases all modifier keys (Shift, Ctrl, Alt) after SendInput.
+    /// Sends KEYUP for all modifiers regardless of whether they were pressed,
+    /// to unstick any leaked modifier state from previous actions.
+    /// Called after EVERY SendInput block while still attached.
+    /// </summary>
+    private void ReleaseAllModifiers()
+    {
+        var safetyInputs = new[]
+        {
+            new INPUT
             {
                 type = INPUT_KEYBOARD,
                 u = new INPUTUNION
                 {
-                    ki = new KEYBDINPUT
-                    {
-                        wVk = 0, // MUST be 0 for raw scan code
-                        wScan = (ushort)sc,
-                        dwFlags = flags,
-                        time = 0,
-                        dwExtraInfo = IntPtr.Zero
-                    }
+                    ki = new KEYBDINPUT { wVk = 0x10, wScan = 0, dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, time = 0, dwExtraInfo = IntPtr.Zero }
                 }
-            });
-        }
-
-        // Modifiers down (scan codes only)
-        if (kpa.Modifiers.Shift) AddScanCode(0x10, false);
-        if (kpa.Modifiers.Ctrl) AddScanCode(0x11, false);
-        if (kpa.Modifiers.Alt) AddScanCode(0x12, false);
-
-        // Main key down + up
-        AddScanCode(kpa.VirtualKeyCode, false);
-        await Task.Delay(Math.Max(kpa.HoldDurationMs, 50), token);
-        AddScanCode(kpa.VirtualKeyCode, true);
-
-        // Modifiers up (reverse)
-        if (kpa.Modifiers.Alt) AddScanCode(0x12, true);
-        if (kpa.Modifiers.Ctrl) AddScanCode(0x11, true);
-        if (kpa.Modifiers.Shift) AddScanCode(0x10, true);
-
-        var arr = inputs.ToArray();
-        SendInput((uint)arr.Length, arr, Marshal.SizeOf<INPUT>());
-
-        OnLog($"[KeyPress/RawInput] {kpa.KeyName} SC=0x{MapVirtualKey((uint)kpa.VirtualKeyCode, 0):X2}");
-
-        // Restore previous foreground
-        await Task.Delay(100, token);
-        if (prevForeground != IntPtr.Zero && prevForeground != hwnd)
-            SetForegroundWindow(prevForeground);
+            },
+            new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT { wVk = 0x11, wScan = 0, dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, time = 0, dwExtraInfo = IntPtr.Zero }
+                }
+            },
+            new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new INPUTUNION
+                {
+                    ki = new KEYBDINPUT { wVk = 0x12, wScan = 0, dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, time = 0, dwExtraInfo = IntPtr.Zero }
+                }
+            },
+        };
+        SendInput(3, safetyInputs, Marshal.SizeOf<INPUT>());
     }
 
     private async Task ExecuteKeyPressAsync(KeyPressAction kpa, CancellationToken token)
@@ -1716,7 +1909,7 @@ public sealed class MacroEngine
         int vk = kpa.VirtualKeyCode;
         int hold = Math.Max(0, kpa.HoldDurationMs);
 
-        // ── DISPATCH BY INPUT MODE ────────────────────────────────────────────
+        // ── HARDWARE MODE: SendInput or RawInput ─────────────────────────────────
         switch (kpa.InputMode)
         {
             case KeyInputMode.RawInput:
@@ -1726,13 +1919,12 @@ public sealed class MacroEngine
                 await ExecuteKeyPressSendInputAsync(kpa, hwnd, token);
                 return;
             default:
-                // KeyInputMode.Auto — fall through to PostMessage path
                 break;
         }
 
-        // ── PATH 1: Printable character ──────────────────────────────────────
-        // TryGetPrintableChar handles Shift+2 → '@', Shift+a → 'A', etc.
-        // by translating through the current keyboard layout.
+        // ── POSTMESSAGE PATH ───────────────────────────────────────────────────────
+
+        // PATH 1: Printable character → WM_CHAR
         char? printable = TryGetPrintableChar(vk, kpa.Modifiers.Shift, kpa.Modifiers.Ctrl, kpa.Modifiers.Alt);
         if (printable.HasValue)
         {
@@ -1742,18 +1934,15 @@ public sealed class MacroEngine
             return;
         }
 
-        // ── PATH 2: Ctrl+A → select all via EM_SETSEL ────────────────────────
+        // PATH 2: Ctrl+A → select all via EM_SETSEL
         if (kpa.Modifiers.Ctrl && vk == 0x41)
         {
-            // EM_SETSEL: wParam=start, lParam=end; (-1,-1) selects everything
             Win32Api.PostMessage(target, EM_SETSEL, IntPtr.Zero, (IntPtr)(-1));
             OnLog("  KeyPress Ctrl+A → EM_SETSEL (select all)");
             return;
         }
 
-        // ── PATH 3: Ctrl+C/V/X/Z → semantic clipboard messages ───────────────
-        // These bypass the keyboard layout entirely and go straight to the
-        // edit control's built-in clipboard handler — works on any background window.
+        // PATH 3: Ctrl+C/V/X/Z → semantic clipboard messages
         uint? semantic = GetSemanticMessage(vk, kpa.Modifiers);
         if (semantic.HasValue)
         {
@@ -1770,52 +1959,24 @@ public sealed class MacroEngine
             return;
         }
 
-        // ── PATH 4: Everything else ───────────────────────────────────────────
-        // F1-F24, Enter, Tab, arrows, Ctrl+S, Alt+F4, etc.
-        // → raw WM_KEYDOWN/WM_KEYUP with staggered timing and correct lParam.
+        // PATH 4: Everything else → raw WM_KEYDOWN/WM_KEYUP or ElectronKeyPress
         IntPtr downParam = BuildKeyLParam(vk, isKeyUp: false);
         IntPtr upParam   = BuildKeyLParam(vk, isKeyUp: true);
 
-        // Press modifiers in order (with 20ms gap so message queue can drain)
-        if (kpa.Modifiers.Shift)
+        // For Electron/Chromium: WM_KEYDOWN/WM_KEYUP via PostMessage is ignored.
+        // Use ElectronKeyPressAsync (flash + SendInput) instead.
+        if (RequiresSendInput(hwnd))
         {
-            Win32Api.PostMessage(target, Win32Api.WM_KEYDOWN, (IntPtr)0x10, BuildKeyLParam(0x10, false));
-            await Task.Delay(20, token).ConfigureAwait(false);
-        }
-        if (kpa.Modifiers.Ctrl)
-        {
-            Win32Api.PostMessage(target, Win32Api.WM_KEYDOWN, (IntPtr)0x11, BuildKeyLParam(0x11, false));
-            await Task.Delay(20, token).ConfigureAwait(false);
-        }
-        if (kpa.Modifiers.Alt)
-        {
-            Win32Api.PostMessage(target, 0x0104u, (IntPtr)0x12, BuildKeyLParam(0x12, false));
-            await Task.Delay(20, token).ConfigureAwait(false);
+            await ElectronKeyPressAsync(hwnd, kpa, token);
+            return;
         }
 
-        // Press main key → hold → release
-        Win32Api.PostMessage(target, Win32Api.WM_KEYDOWN, (IntPtr)vk, downParam);
+        // Normal Win32 apps: PostMessage works.
+        Win32Api.PostMessage(target, WM_KEYDOWN, (IntPtr)vk, downParam);
         await Task.Delay(Math.Max(hold, 50), token).ConfigureAwait(false);
-        Win32Api.PostMessage(target, Win32Api.WM_KEYUP, (IntPtr)vk, upParam);
+        Win32Api.PostMessage(target, WM_KEYUP, (IntPtr)vk, upParam);
 
-        // Release modifiers in reverse order (with 20ms gap)
-        await Task.Delay(20, token).ConfigureAwait(false);
-        if (kpa.Modifiers.Alt)
-        {
-            Win32Api.PostMessage(target, 0x0105u, (IntPtr)0x12, BuildKeyLParam(0x12, true));
-            await Task.Delay(20, token).ConfigureAwait(false);
-        }
-        if (kpa.Modifiers.Ctrl)
-        {
-            Win32Api.PostMessage(target, Win32Api.WM_KEYUP, (IntPtr)0x11, BuildKeyLParam(0x11, true));
-            await Task.Delay(20, token).ConfigureAwait(false);
-        }
-        if (kpa.Modifiers.Shift)
-        {
-            Win32Api.PostMessage(target, Win32Api.WM_KEYUP, (IntPtr)0x10, BuildKeyLParam(0x10, true));
-        }
-
-        OnLog($"  KeyPress {kpa.KeyName} (VK=0x{vk:X2} SC=0x{MapVirtualKey((uint)vk, 0):X2})");
+        OnLog($"  KeyPress {kpa.KeyName} → WM_KEYDOWN/WM_KEYUP");
     }
 
     /// <summary>
@@ -2391,6 +2552,136 @@ public sealed class MacroEngine
     [DllImport("user32.dll")]
     private static extern short VkKeyScan(char ch);
 
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetActiveWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+    private const uint GA_ROOT = 2;
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumChildWindows(IntPtr hWndParent, Win32Api.EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    /// <summary>
+    /// Sends a PostMessage click to Electron/Chromium windows instead of using real mouse.
+    /// Works on hidden windows via AttachThreadInput. Falls back to child windows.
+    /// </summary>
+    private async Task ElectronClickAsync(IntPtr hwnd, int x, int y, bool rightClick, CancellationToken token)
+    {
+        IntPtr lParam = Win32Api.MakeLParam(x, y);
+
+        // Attach thread to target so PostMessage reaches hidden window
+        uint targetThread = GetWindowThreadProcessId(hwnd, out _);
+        uint currentThread = GetCurrentThreadId();
+        bool attached = targetThread != currentThread && AttachThreadInput(currentThread, targetThread, true);
+        await Task.Delay(20, token);
+
+        try
+        {
+            // Try main window first
+            if (rightClick)
+            {
+                Win32Api.PostMessage(hwnd, Win32Api.WM_RBUTTONDOWN, (IntPtr)Win32Api.MK_RBUTTON, lParam);
+                await Task.Delay(30, token);
+                Win32Api.PostMessage(hwnd, Win32Api.WM_RBUTTONUP, IntPtr.Zero, lParam);
+            }
+            else
+            {
+                Win32Api.PostMessage(hwnd, Win32Api.WM_LBUTTONDOWN, (IntPtr)1, lParam);
+                await Task.Delay(30, token);
+                Win32Api.PostMessage(hwnd, Win32Api.WM_LBUTTONUP, IntPtr.Zero, lParam);
+            }
+            await Task.Delay(50, token);
+
+            // Also try Electron renderer child windows
+            EnumChildWindowsForClick(hwnd, x, y, rightClick, token);
+        }
+        finally
+        {
+            if (attached)
+                AttachThreadInput(currentThread, targetThread, false);
+        }
+    }
+
+    /// <summary>
+    /// Enumerates Electron renderer child windows and sends PostMessage click to them.
+    /// </summary>
+    private void EnumChildWindowsForClick(IntPtr parent, int x, int y, bool rightClick, CancellationToken token)
+    {
+        IntPtr lParam = Win32Api.MakeLParam(x, y);
+        IntPtr down = rightClick ? (IntPtr)Win32Api.MK_RBUTTON : (IntPtr)Win32Api.MK_LBUTTON;
+        uint downMsg = rightClick ? Win32Api.WM_RBUTTONDOWN : Win32Api.WM_LBUTTONDOWN;
+        uint upMsg = rightClick ? Win32Api.WM_RBUTTONUP : Win32Api.WM_LBUTTONUP;
+
+        EnumChildWindows(parent, (child, _) =>
+        {
+            string cls = Win32Api.GetWindowClassName(child);
+            if (cls.Contains("Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase) ||
+                cls.Contains("Intermediate", StringComparison.OrdinalIgnoreCase))
+            {
+                Win32Api.PostMessage(child, downMsg, down, lParam);
+                Thread.Sleep(20);
+                Win32Api.PostMessage(child, upMsg, IntPtr.Zero, lParam);
+            }
+            return true;
+        }, IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Finds the actual focused child window within the target process using AttachThreadInput.
+    /// For Electron apps (Discord, etc.), the top-level window is NOT the actual text input —
+    /// the focused window is deep in the Chromium render tree.
+    /// Returns <paramref name="topLevelHwnd"/> if no valid child is found.
+    /// </summary>
+    private static IntPtr GetFocusedChildWindow(IntPtr topLevelHwnd)
+    {
+        if (topLevelHwnd == IntPtr.Zero) return topLevelHwnd;
+
+        uint targetThread = GetWindowThreadProcessId(topLevelHwnd, out uint targetPid);
+        uint ourThread = GetCurrentThreadId();
+
+        if (AttachThreadInput(ourThread, targetThread, true))
+        {
+            try
+            {
+                IntPtr focused = GetFocus();
+                if (focused != IntPtr.Zero && focused != topLevelHwnd)
+                {
+                    GetWindowThreadProcessId(focused, out uint focusedPid);
+                    if (focusedPid == targetPid)
+                    {
+                        // Walk up to confirm it's a descendant of top-level
+                        IntPtr ancestor = GetAncestor(focused, GA_ROOT);
+                        if (ancestor == topLevelHwnd)
+                            return focused;
+                    }
+                }
+            }
+            finally
+            {
+                AttachThreadInput(ourThread, targetThread, false);
+            }
+        }
+
+        return topLevelHwnd;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct INPUT
     {
@@ -2434,8 +2725,54 @@ public sealed class MacroEngine
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_SCANCODE = 0x0008;
+    private const int SW_HIDE = 0;
     private const int SW_SHOW = 5;
     private const int SW_RESTORE = 9;
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetCursorPos(int X, int Y);
+
+    [DllImport("user32.dll")]
+    private static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, UIntPtr dwExtraInfo);
+
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP   = 0x0004;
+
+    private static IntPtr MAKELPARAM(int x, int y)
+        => (IntPtr)(((y & 0xFFFF) << 16) | (x & 0xFFFF));
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    /// <summary>
+    /// Detects non-Win32 apps that ignore PostMessage input.
+    /// Discord (Electron/Chromium), Java Swing, and Unity all fall in this category.
+    /// </summary>
+    private static bool RequiresSendInput(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        var sb = new System.Text.StringBuilder(256);
+        int len = GetClassName(hwnd, sb, 256);
+        if (len == 0) return false;
+        string className = sb.ToString().ToLowerInvariant();
+        return className.Contains("chrome_") ||
+               className.Contains("chromewidget") ||
+               className.Contains("chrome_widgetwin") ||  // Discord / Electron top-level windows
+               className.Contains("cef") ||
+               className.Contains("sunawt") ||
+               className.Contains("unitywnd") ||
+               className.Contains("afx:") ||
+               className.Contains("rwidget");
+    }
 
     // ═══════════════════════════════════════════════
     //  SUB-MACRO (CallMacroAction)
@@ -2509,4 +2846,162 @@ public sealed class MacroEngine
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : string.Concat(value.AsSpan(0, maxLength), "…");
+
+    // ═══════════════════════════════════════════════
+    //  UIAUTOMATION — Electron / Chromium stealth input
+    // ═══════════════════════════════════════════════
+
+    /// <summary>
+    /// UIAutomation-based click for Electron/Chromium apps (Discord, Chrome, VS Code).
+    /// Uses AutomationElement.FromPoint to find exact element at coordinates,
+    /// tries InvokePattern for buttons, then falls back to PostMessage.
+    /// </summary>
+    private async Task UiaClickAsync(IntPtr hwnd, int x, int y, CancellationToken token)
+    {
+        try
+        {
+            // Use ClientToScreen to convert client coords to screen coords (ignores DWM shadows)
+            var pt = new Win32Api.POINT { X = x, Y = y };
+            Win32Api.ClientToScreen(hwnd, ref pt);
+            var screenPoint = new System.Windows.Point(pt.X, pt.Y);
+
+            // Find exact element at coordinates
+            AutomationElement? target = null;
+            try { target = AutomationElement.FromPoint(screenPoint); } catch { }
+
+            if (target != null)
+            {
+                // Try InvokePattern (button click)
+                if (target.TryGetCurrentPattern(InvokePattern.Pattern, out var inv))
+                {
+                    ((InvokePattern)inv).Invoke();
+                    Log?.Invoke($"[Click/UIA] ({x},{y}) → {target.Current.Name}");
+                    return;
+                }
+            }
+        }
+        catch { }
+
+        // Fallback: PostMessage after UIA SetFocus
+        try
+        {
+            var element = AutomationElement.FromHandle(hwnd);
+            element?.SetFocus();
+            await Task.Delay(50, token);
+        }
+        catch { }
+
+        IntPtr lParam = MAKELPARAM(x, y);
+        Win32Api.PostMessage(hwnd, Win32Api.WM_LBUTTONDOWN, (IntPtr)1, lParam);
+        await Task.Delay(30, token);
+        Win32Api.PostMessage(hwnd, Win32Api.WM_LBUTTONUP, IntPtr.Zero, lParam);
+        Log?.Invoke($"[Click/UIA+Post] ({x},{y})");
+    }
+
+    /// <summary>
+    /// UIAutomation-based type for Electron/Chromium apps (Discord, Chrome, VS Code).
+    /// Tries ValuePattern first (works for simple Win32 inputs, NOT Discord/React).
+    /// Falls back to flash foreground (safe for Electron/Discord/React).
+    /// </summary>
+    private async Task UiaTypeAsync(IntPtr hwnd, string text, CancellationToken token)
+    {
+        // Tier 1: ValuePattern — works for simple Win32 inputs, NOT Discord/React
+        try
+        {
+            var root = AutomationElement.FromHandle(hwnd);
+            var condition = new AndCondition(
+                new PropertyCondition(AutomationElement.IsEnabledProperty, true),
+                new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document)
+                )
+            );
+            var textBox = root?.FindFirst(TreeScope.Descendants, condition);
+            if (textBox != null &&
+                textBox.TryGetCurrentPattern(ValuePattern.Pattern, out var vp) &&
+                !((ValuePattern)vp).Current.IsReadOnly)
+            {
+                ((ValuePattern)vp).SetValue(text);
+                Log?.Invoke($"[TypeText/UIA-Value] \"{Truncate(text, 40)}\"");
+                return;
+            }
+        }
+        catch { }
+
+        // Tier 2: Flash foreground (only safe method for Electron/Discord/React)
+        await TypeViaFlashForegroundAsync(hwnd, text, token);
+    }
+    private async Task ElectronKeyPressAsync(IntPtr hwnd, KeyPressAction kpa, CancellationToken token)
+    {
+        IntPtr prevFg = GetForegroundWindow();
+        bool wasHidden = !Win32Api.IsWindowVisible(hwnd);
+
+        if (wasHidden) { ShowWindow(hwnd, SW_SHOW); await Task.Delay(80, token); }
+        SetForegroundWindow(hwnd);
+        await Task.Delay(120, token);
+
+        var inputs = new List<INPUT>();
+
+        if (kpa.Modifiers?.Shift == true)
+            inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x10 } } });
+        if (kpa.Modifiers?.Ctrl == true)
+            inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x11 } } });
+        if (kpa.Modifiers?.Alt == true)
+            inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x12 } } });
+
+        inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = (ushort)kpa.VirtualKeyCode } } });
+        inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = (ushort)kpa.VirtualKeyCode, dwFlags = KEYEVENTF_KEYUP } } });
+
+        if (kpa.Modifiers?.Alt == true)
+            inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x12, dwFlags = KEYEVENTF_KEYUP } } });
+        if (kpa.Modifiers?.Ctrl == true)
+            inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x11, dwFlags = KEYEVENTF_KEYUP } } });
+        if (kpa.Modifiers?.Shift == true)
+            inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x10, dwFlags = KEYEVENTF_KEYUP } } });
+
+        var arr = inputs.ToArray();
+        SendInput((uint)arr.Length, arr, Marshal.SizeOf<INPUT>());
+        await Task.Delay(80, token);
+
+        if (wasHidden) { ShowWindow(hwnd, SW_HIDE); await Task.Delay(30, token); }
+        if (prevFg != IntPtr.Zero && prevFg != hwnd) SetForegroundWindow(prevFg);
+
+        Log?.Invoke($"[KeyPress/Flash] {kpa.KeyName}");
+    }
+
+    private async Task TypeViaFlashForegroundAsync(IntPtr hwnd, string text, CancellationToken token)
+    {
+        string? prev = null;
+        await WpfApp.Current.Dispatcher.InvokeAsync(() => {
+            try { prev = System.Windows.Clipboard.GetText(); } catch {}
+            try { System.Windows.Clipboard.SetText(text); } catch {}
+        });
+        await Task.Delay(80, token);
+
+        IntPtr prevFg = GetForegroundWindow();
+        bool wasHidden = !Win32Api.IsWindowVisible(hwnd);
+
+        if (wasHidden) { ShowWindow(hwnd, SW_SHOW); await Task.Delay(100, token); }
+        SetForegroundWindow(hwnd);
+        await Task.Delay(150, token);
+
+        var inputs = new INPUT[]
+        {
+            new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x11 } } },
+            new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x56 } } },
+            new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x56, dwFlags = KEYEVENTF_KEYUP } } },
+            new INPUT { type = INPUT_KEYBOARD, u = new INPUTUNION { ki = new KEYBDINPUT { wVk = 0x11, dwFlags = KEYEVENTF_KEYUP } } },
+        };
+        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+        await Task.Delay(150, token);
+
+        if (wasHidden) { ShowWindow(hwnd, SW_HIDE); await Task.Delay(30, token); }
+        if (prevFg != IntPtr.Zero && prevFg != hwnd) SetForegroundWindow(prevFg);
+
+        await WpfApp.Current.Dispatcher.InvokeAsync(() => {
+            try { if (prev != null) System.Windows.Clipboard.SetText(prev); else System.Windows.Clipboard.Clear(); } catch {}
+        });
+
+        OnLog($"    → Clipboard paste: {text.Length} ký tự → Electron app (flash fallback)");
+    }
 }

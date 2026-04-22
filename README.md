@@ -8,7 +8,7 @@
 
 **Tự động hóa mọi thứ. Hoàn toàn tàng hình.**
 
-[![Version](https://img.shields.io/badge/version-v1.4.0-blue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI/releases)
+[![Version](https://img.shields.io/badge/version-v1.5.0-blue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightblue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI)
 [![Framework](https://img.shields.io/badge/.NET-8.0%20WPF-purple?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
@@ -127,7 +127,7 @@ Tự động kiểm tra phiên bản mới từ GitHub khi khởi động. Nếu
 
 **Cách 1 — Dùng Installer (Khuyến nghị)**
 
-1. Tải file `SmartMacroAI_Setup_v1.4.0.exe` từ [**Releases**](https://github.com/TroniePh/SmartMacroAI/releases/latest)
+1. Tải file `SmartMacroAI_Setup_v1.5.0.exe` từ [**Releases**](https://github.com/TroniePh/SmartMacroAI/releases/latest)
 2. Chạy file installer, làm theo hướng dẫn trên màn hình
 3. Installer sẽ **tự động tải và cài Playwright Chromium** sau khi cài app (cần ~1-2 phút)
 4. Shortcut Desktop và Start Menu được tạo tự động
@@ -162,10 +162,10 @@ dotnet publish SmartMacroAI.csproj -c Release -r win-x64 --self-contained true `
 3. Biên dịch script (tuỳ chọn chỉ định phiên bản, ví dụ `1.2.2`):
 
 ```powershell
-& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\SmartMacroAI_Setup.iss /DMyAppVersion=1.3.0
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\SmartMacroAI_Setup.iss /DMyAppVersion=1.5.0
 ```
 
-4. File cài đặt nằm tại `installer_out\SmartMacroAI_Setup_v1.4.0.exe`.
+4. File cài đặt nằm tại `installer_out\SmartMacroAI_Setup_v1.5.0.exe`.
 
 ---
 
@@ -268,6 +268,7 @@ Lệnh `PostMessage` gửi trực tiếp sự kiện vào **message queue** củ
 
 | Phiên bản | Ngày | Highlights |
 |-----------|------|-----------|
+| **v1.5.0** | 04/2026 | Global hook pause khi dialog mở, MacroRecorder volatile flag, ExecuteClickAsync tách HW/PostMessage, StackTrace logging, Global HWND validation, Anti-Detection improvements |
 | **v1.4.0** | 04/2026 | Sửa TypeText clipboard, Dashboard Edit mở Macro Editor, Variable Inspector tạm thời bị ẩn, Hướng dẫn sử dụng |
 | **v1.3.0** | 04/2026 | WM_CHAR cho Shift+ký tự, semantic messages cho Ctrl+C/V, Auto-bring target khi Ghi |
 | **v1.2.1** | 04/2026 | Anti-Detection v1.1, OCR/Variables, bản vá và cải tiến |
