@@ -8,7 +8,7 @@
 
 **Tự động hóa mọi thứ. Hoàn toàn tàng hình.**
 
-[![Version](https://img.shields.io/badge/version-v1.5.0-blue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI/releases)
+[![Version](https://img.shields.io/badge/version-v1.5.1-blue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightblue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI)
 [![Framework](https://img.shields.io/badge/.NET-8.0%20WPF-purple?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
