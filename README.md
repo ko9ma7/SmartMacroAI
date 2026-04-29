@@ -8,7 +8,7 @@
 
 **Tự động hóa mọi thứ. Hoàn toàn tàng hình.**
 
-[![Version](https://img.shields.io/badge/version-v1.5.1-blue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI/releases)
+[![Version](https://img.shields.io/badge/version-v1.5.2-blue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightblue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI)
 [![Framework](https://img.shields.io/badge/.NET-8.0%20WPF-purple?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
@@ -100,10 +100,10 @@ Tự động kiểm tra phiên bản mới từ GitHub khi khởi động. Nếu
 
 | Icon | Loại Action | Mô tả |
 |:----:|-------------|-------|
-| 🖱️ | **Click** | Gửi click trái/phải đến tọa độ (X, Y) trong cửa sổ |
+| 🖱️ | **Click** | Gửi click trái/phải — Stealth (PostMessage), Raw (SendInput), Hardware (SetCursorPos) |
 | ⌨️ | **Type** | Gõ văn bản trực tiếp vào cửa sổ mục tiêu |
 | ⏱️ | **Wait** | Dừng lại N mili-giây trước khi thực hiện bước tiếp theo |
-| 🖼️ | **IF Image Found** | Tìm hình ảnh mẫu trong cửa sổ, tự động click nếu tìm thấy |
+| 🖼️ | **IF Image Found** | Tìm hình ảnh mẫu trong cửa sổ, retry cho đến khi thấy, click nếu tìm thấy |
 | 🔤 | **IF Text Found** | Đọc text bằng OCR, thực hiện hành động khi tìm thấy chuỗi ký tự |
 | 🌐 | **Web: Navigate** | Điều hướng trình duyệt Playwright đến URL |
 | 🌐 | **Web: Click** | Click vào element bằng CSS Selector |
@@ -125,47 +125,27 @@ Tự động kiểm tra phiên bản mới từ GitHub khi khởi động. Nếu
 
 ### ⬇️ Cài đặt
 
-**Cách 1 — Dùng Installer (Khuyến nghị)**
+**Cách 1 — ZIP (Khuyến nghị)**
 
-1. Tải file `SmartMacroAI_Setup_v1.5.0.exe` từ [**Releases**](https://github.com/TroniePh/SmartMacroAI/releases/latest)
-2. Chạy file installer, làm theo hướng dẫn trên màn hình
-3. Installer sẽ **tự động tải và cài Playwright Chromium** sau khi cài app (cần ~1-2 phút)
-4. Shortcut Desktop và Start Menu được tạo tự động
-5. Khởi chạy `SmartMacroAI.exe` — chấp nhận UAC prompt
+1. Tải file `SmartMacroAI-v1.5.2-win-x64.zip` từ [**Releases**](https://github.com/TroniePh/SmartMacroAI/releases/latest)
+2. Giải nén vào thư mục bất kỳ
+3. Chạy `SmartMacroAI.exe` — chấp nhận UAC prompt khi khởi động
 
-**Cách 2 — Build từ source**
+**Cách 2 — Installer (.exe cài đặt)**
+
+1. Tải file `SmartMacroAI_Setup_v1.5.2.exe` từ [**Releases**](https://github.com/TroniePh/SmartMacroAI/releases/latest)
+2. Chạy installer, làm theo hướng dẫn trên màn hình
+3. Shortcut Desktop và Start Menu được tạo tự động
+
+**Build từ source**
 
 ```bash
-# Clone repository
 git clone https://github.com/TroniePh/SmartMacroAI.git
 cd SmartMacroAI
-
-# Restore & Build
 dotnet restore
 dotnet publish -c Release -r win-x64 --self-contained true -o publish/win-x64
-
-# Chạy app
 ./publish/win-x64/SmartMacroAI.exe
 ```
-
-**Build installer (.exe cài đặt) trên máy Windows**
-
-1. Cài [Inno Setup 6](https://jrsoftware.org/isdl.php).
-2. Publish bản self-contained vào thư mục `release_output` (cùng tên với script):
-
-```powershell
-dotnet publish SmartMacroAI.csproj -c Release -r win-x64 --self-contained true `
-  -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true `
-  -p:IncludeNativeLibrariesForSelfExtract=true -o ./release_output
-```
-
-3. Biên dịch script (tuỳ chọn chỉ định phiên bản, ví dụ `1.2.2`):
-
-```powershell
-& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\SmartMacroAI_Setup.iss /DMyAppVersion=1.5.0
-```
-
-4. File cài đặt nằm tại `installer_out\SmartMacroAI_Setup_v1.5.0.exe`.
 
 ---
 
@@ -268,14 +248,16 @@ Lệnh `PostMessage` gửi trực tiếp sự kiện vào **message queue** củ
 
 | Phiên bản | Ngày | Highlights |
 |-----------|------|-----------|
+| **v1.5.2** | 04/2026 | Bug fixes: ClickAction ClickMode enum (Stealth/Raw/Hardware), IfImageFound RetryUntilFound loop, DialogResult safety verified, credit lines added |
+| **v1.5.1** | 04/2026 | Per-instance MacroRunnerState for dashboard |
 | **v1.5.0** | 04/2026 | Global hook pause khi dialog mở, MacroRecorder volatile flag, ExecuteClickAsync tách HW/PostMessage, StackTrace logging, Global HWND validation, Anti-Detection improvements |
 | **v1.4.0** | 04/2026 | Sửa TypeText clipboard, Dashboard Edit mở Macro Editor, Variable Inspector tạm thời bị ẩn, Hướng dẫn sử dụng |
 | **v1.3.0** | 04/2026 | WM_CHAR cho Shift+ký tự, semantic messages cho Ctrl+C/V, Auto-bring target khi Ghi |
 | **v1.2.1** | 04/2026 | Anti-Detection v1.1, OCR/Variables, bản vá và cải tiến |
 | **v1.2.0** | 04/2026 | Chuột Bézier (hardware mode), tab Mouse Settings, GitHub Release |
-| **v1.1.1** | 04/2026 | 🔧 Patch · GitHub Actions release pipeline · version bump |
-| **v1.1.0** | 04/2026 | 🆕 Admin UAC manifest · 🔄 Auto Update Checker · Humanized ControlClick |
-| **v1.0.0** | 04/2026 | 🎉 Ra mắt · Dashboard · Stealth Manager · Playwright Web Engine · Vision AI |
+| **v1.1.1** | 04/2026 | Patch · GitHub Actions release pipeline · version bump |
+| **v1.1.0** | 04/2026 | Admin UAC manifest · Auto Update Checker · Humanized ControlClick |
+| **v1.0.0** | 04/2026 | Ra mắt · Dashboard · Stealth Manager · Playwright Web Engine · Vision AI |
 
 ---
 
