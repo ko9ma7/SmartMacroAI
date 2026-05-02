@@ -1721,39 +1721,49 @@ public sealed class MacroEngine
     /// </summary>
     private async Task TypeViaClipboardAndPasteAsync(IntPtr hwnd, string text, CancellationToken token)
     {
-        // Step 1: Set clipboard on UI thread
-        await WpfApp.Current.Dispatcher.InvokeAsync(() =>
+        // FIX 1: Lock OS resources (Clipboard + AttachThreadInput) to prevent cross-window contamination
+        if (!await _osResourceLock.WaitAsync(TimeSpan.FromSeconds(5), token))
         {
-            try { System.Windows.Clipboard.SetText(text); } catch { }
-        });
-        await Task.Delay(80, token);
-
-        // Step 2: Attach to Discord's thread so PostMessage reaches its hidden window
-        uint targetThread = GetWindowThreadProcessId(hwnd, out _);
-        uint currentThread = GetCurrentThreadId();
-        bool attached = false;
-        if (targetThread != currentThread)
-        {
-            attached = AttachThreadInput(currentThread, targetThread, true);
-            await Task.Delay(20, token);
+            OnLog("[WARN] OS resource lock timeout on TypeViaClipboardAndPasteAsync — skipping");
+            return;
         }
-
         try
         {
-            // Step 3a: Send WM_PASTE to main window
-            Win32Api.PostMessage(hwnd, WM_PASTE, IntPtr.Zero, IntPtr.Zero);
-            await Task.Delay(100, token);
+            // Step 1: Set clipboard on UI thread
+            await WpfApp.Current.Dispatcher.InvokeAsync(() =>
+            {
+                try { System.Windows.Clipboard.SetText(text); } catch { }
+            });
+            await Task.Delay(80, token);
 
-            // Step 3b: Also try child windows (Electron renderer)
-            EnumChildWindowsWithLogging(hwnd);
-        }
-        finally
-        {
-            if (attached)
-                AttachThreadInput(currentThread, targetThread, false);
-        }
+            // Step 2: Attach to Discord's thread so PostMessage reaches its hidden window
+            uint targetThread = GetWindowThreadProcessId(hwnd, out _);
+            uint currentThread = GetCurrentThreadId();
+            bool attached = false;
+            if (targetThread != currentThread)
+            {
+                attached = AttachThreadInput(currentThread, targetThread, true);
+                await Task.Delay(20, token);
+            }
 
-        OnLog($"    → Clipboard paste: {text.Length} ký tự → Electron app (WM_PASTE)");
+            try
+            {
+                // Step 3a: Send WM_PASTE to main window
+                Win32Api.PostMessage(hwnd, WM_PASTE, IntPtr.Zero, IntPtr.Zero);
+                await Task.Delay(100, token);
+
+                // Step 3b: Also try child windows (Electron renderer)
+                EnumChildWindowsWithLogging(hwnd);
+            }
+            finally
+            {
+                if (attached)
+                    AttachThreadInput(currentThread, targetThread, false);
+            }
+
+            OnLog($"    → Clipboard paste: {text.Length} ký tự → Electron app (WM_PASTE)");
+        }
+        finally { _osResourceLock.Release(); }
     }
 
     /// <summary>
