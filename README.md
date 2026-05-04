@@ -1,305 +1,213 @@
-<div align="center">
-
-<img src="docs/logo.png" width="110" alt="SmartMacroAI Logo" />
-
 # SmartMacroAI
 
-### 🤖 Enterprise-grade RPA Automation Tool for Windows
-
-**Tự động hóa mọi thứ. Hoàn toàn tàng hình.**
-
-[![Version](https://img.shields.io/badge/version-v1.5.4-blue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightblue?style=for-the-badge&logo=windows)](https://github.com/TroniePh/SmartMacroAI)
-[![Framework](https://img.shields.io/badge/.NET-8.0%20WPF-purple?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/)
-[![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
-[![Free](https://img.shields.io/badge/price-FREE-brightgreen?style=for-the-badge)](https://github.com/TroniePh/SmartMacroAI/releases)
-
-<br/>
-
-[**⬇️ Tải về miễn phí**](https://github.com/TroniePh/SmartMacroAI/releases/latest) &nbsp;·&nbsp;
-[**📖 Hướng dẫn sử dụng**](#-hướng-dẫn-sử-dụng) &nbsp;·&nbsp;
-[**🐛 Báo lỗi**](https://github.com/TroniePh/SmartMacroAI/issues) &nbsp;·&nbsp;
-[**💬 Hỗ trợ Facebook**](https://www.facebook.com/neull)
-
-</div>
-
----
-
-## 📸 Giao diện phần mềm
-
 <div align="center">
 
-<img src="docs/screenshot_dashboard.png" width="900" alt="SmartMacroAI Dashboard - Trạm điều hành đa nhiệm" />
+![Version](https://img.shields.io/badge/version-1.5.5-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-lightgrey)
+![.NET](https://img.shields.io/badge/.NET-8.0-purple)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Language](https://img.shields.io/badge/language-VI%20%7C%20EN-orange)
 
-*Dashboard — Trạm điều hành đa nhiệm: chạy nhiều kịch bản song song trên các cửa sổ khác nhau cùng lúc*
+**[English](#english) | [Tiếng Việt](#tiếng-việt)**
+
+*Created by Phạm Duy – Giải pháp tự động hóa thông minh.*
 
 </div>
 
 ---
 
-## 🎯 SmartMacroAI là gì?
+## English
 
-**SmartMacroAI** là một công cụ **RPA (Robotic Process Automation)** chuyên nghiệp dành cho Windows, cho phép bạn tạo và thực thi các kịch bản tự động hóa mà **không cần viết một dòng code nào**.
+### What is SmartMacroAI?
 
-Điểm đặc biệt nhất: SmartMacroAI sử dụng **Win32 API** (`PostMessage`, `SendMessage`) để tương tác trực tiếp với cửa sổ ứng dụng ở chế độ nền — **chuột và bàn phím của bạn hoàn toàn tự do** trong khi bot đang chạy.
+SmartMacroAI is a powerful Windows macro automation tool with AI integration. Automate repetitive tasks, game farming, web form filling, and more — with support for anti-cheat games via kernel-level Interception driver.
 
-> 💡 **Dùng để làm gì?** Game automation, form filling, data entry, web scraping, kiểm thử phần mềm, và mọi tác vụ lặp lại khác trên Windows.
+### Key Features
 
----
+- **Multi-mode Click** — Stealth (PostMessage), SendInput, Raw Input, Driver Level (Interception)
+- **Key Press** — PostMessage, SendInput, Raw/ScanCode, Driver Level
+- **Mouse Button Support** — Left, Right, Middle click across all modes
+- **Anti-Cheat Support** — Kernel driver bypass (MapleStory, Cabal Online, etc.)
+- **Image Recognition** — Find image on screen, auto click at found position
+- **OCR Text Detection** — Read text from screen regions via Tesseract
+- **CSV Auto Fill** — Loop CSV rows into web/desktop forms
+- **AI Integration** — OpenAI & Gemini support for smart decision-making
+- **Multi Dashboard** — Monitor and control multiple macros simultaneously
+- **Bilingual UI** — English & Vietnamese with 700+ localization keys
+- **Macro Lock** — Password-protect your macros
+- **Scheduler** — Run macros at specific times or on startup
+- **Visual Coordinate Picker** — Click to pick coordinates on screen
+- **Run History** — Track macro execution logs and statistics
+- **Telegram Notifications** — Get notified when macros complete
+- **Script Sharing** — Share macros via encoded strings
+- **6 Macro Templates** — Ready-to-use templates with full action chains
+- **Anti-Detection** — Human-like mouse movement and random delays
+- **Web Automation** — Playwright-based browser control
 
-## ✨ Tính năng nổi bật
+### System Requirements
 
-<table>
-<tr>
-<td width="50%">
+| Component | Minimum |
+|-----------|---------|
+| OS | Windows 10 x64 or later |
+| .NET | .NET 8.0 Runtime |
+| RAM | 4 GB |
+| Storage | 200 MB |
 
-### 👻 Stealth Engine
-Chạy ngầm 100% — ẩn hoàn toàn cửa sổ mục tiêu khỏi thanh taskbar, trả lại chuột và bàn phím cho bạn làm việc khác. Hotkey toàn cục để ẩn/hiện tức thì.
+### Quick Start
 
-</td>
-<td width="50%">
+1. Download the latest installer from [Releases](https://github.com/TroniePh/SmartMacroAI/releases)
+2. Run `SmartMacroAI_Setup.exe` as Administrator
+3. Launch SmartMacroAI
+4. Click **+ New Macro** — choose a template or start from scratch
+5. Set your target window — add actions — press **Run**
 
-### 🧠 Vision AI & OCR
-Nhận diện hình ảnh bằng **Emgu.CV (OpenCV)** và đọc văn bản bằng **Tesseract OCR** từ cửa sổ nền. Click chính xác vào đúng vị trí hình ảnh tìm thấy — không cần tọa độ tĩnh.
+### Driver Level Mode (Anti-Cheat Games)
 
-</td>
-</tr>
-<tr>
-<td width="50%">
+> Allows macros to work inside games protected by anti-cheat systems.
 
-### 🎥 Smart Recorder
-Ghi lại toàn bộ thao tác chuột và bàn phím của bạn, tự động tính delay giữa các hành động y như người thật. Chỉ cần thao tác một lần, bot lặp lại mãi mãi.
+1. Go to **Settings → Driver Level**
+2. Click **Install Now** — approve the UAC prompt
+3. Restart your PC
+4. Re-open SmartMacroAI — select **Driver Level** mode in any click/key action
+5. Click **Test Driver** to verify the installation
 
-</td>
-<td width="50%">
+**Supported games:** MapleStory, Cabal Online, and most DirectX games with anti-cheat.
 
-### 📊 Multi-tasking Dashboard
-Chạy nhiều kịch bản macro song song trên các cửa sổ khác nhau cùng lúc. Mỗi macro có thread riêng, Start/Stop độc lập, không giật lag.
+### Template Gallery
 
-</td>
-</tr>
-<tr>
-<td width="50%">
+| Template | Actions | Category |
+|----------|---------|----------|
+| Auto Login Website | 7 actions | Web |
+| Auto Fill CSV Data | 9 actions (loop) | Web |
+| Auto Repeat Task | 3 actions (loop) | Desktop |
+| Image Detection Loop | 4 actions (loop) | Desktop |
+| Hotkey Automation | 3 actions (loop) | General |
+| Game Farming Loop | 6 actions (loop) | Desktop |
 
-### 🌐 Web Automation (Playwright)
-Tích hợp **Microsoft Playwright** để tự động hóa trình duyệt web: điều hướng URL, click CSS selector, nhập văn bản vào form — kết hợp liền mạch với Desktop automation.
-
-</td>
-<td width="50%">
-
-### 🔄 Update Checker
-Tự động kiểm tra phiên bản mới từ GitHub khi khởi động. Nếu có bản mới, thông báo ngay và mở trang tải về. Chưa bao giờ bị lỡ bản cập nhật.
-
-</td>
-</tr>
-</table>
-
----
-
-## 🛠️ Các loại Action hỗ trợ
-
-| Icon | Loại Action | Mô tả |
-|:----:|-------------|-------|
-| 🖱️ | **Click** | Gửi click trái/phải — Stealth (PostMessage), Raw (SendInput), Hardware (SetCursorPos) |
-| ⌨️ | **Type** | Gõ văn bản trực tiếp vào cửa sổ mục tiêu |
-| ⏱️ | **Wait** | Dừng lại N mili-giây trước khi thực hiện bước tiếp theo |
-| 🖼️ | **IF Image Found** | Tìm hình ảnh mẫu trong cửa sổ, retry cho đến khi thấy, click nếu tìm thấy |
-| 🔤 | **IF Text Found** | Đọc text bằng OCR, thực hiện hành động khi tìm thấy chuỗi ký tự |
-| 🌐 | **Web: Navigate** | Điều hướng trình duyệt Playwright đến URL |
-| 🌐 | **Web: Click** | Click vào element bằng CSS Selector |
-| 🌐 | **Web: Type** | Nhập văn bản vào input field bằng CSS Selector |
-
----
-
-## 🚀 Cài đặt & Sử dụng
-
-### Yêu cầu hệ thống
-
-| Yêu cầu | Chi tiết |
-|---------|---------|
-| **Hệ điều hành** | Windows 10 / Windows 11 (64-bit) |
-| **Quyền hạn** | Administrator (UAC prompt sẽ hiện khi khởi động) |
-| **RAM** | Tối thiểu 4 GB (khuyến nghị 8 GB) |
-| **Ổ cứng** | ~500 MB (bao gồm Playwright Chromium) |
-| **Mạng** | Cần kết nối internet lần đầu để tải Playwright browser |
-
-### ⬇️ Cài đặt
-
-**Cách 1 — ZIP (Khuyến nghị)**
-
-1. Tải file `SmartMacroAI-v1.5.4-win-x64.zip` từ [**Releases**](https://github.com/TroniePh/SmartMacroAI/releases/latest)
-2. Giải nén vào thư mục bất kỳ
-3. Chạy `SmartMacroAI.exe` — chấp nhận UAC prompt khi khởi động
-
-**Cách 2 — Installer (.exe cài đặt)**
-
-1. Tải file `SmartMacroAI_Setup_v1.5.4.exe` từ [**Releases**](https://github.com/TroniePh/SmartMacroAI/releases/latest)
-2. Chạy installer, làm theo hướng dẫn trên màn hình
-3. Shortcut Desktop và Start Menu được tạo tự động
-
-**Build từ source**
+### Build from Source
 
 ```bash
+# Requirements: .NET 8 SDK, Visual Studio 2022 or VS Code
 git clone https://github.com/TroniePh/SmartMacroAI.git
 cd SmartMacroAI
 dotnet restore
-dotnet publish -c Release -r win-x64 --self-contained true -o publish/win-x64
-./publish/win-x64/SmartMacroAI.exe
+dotnet build
+dotnet run
 ```
+
+### Build Installer
+
+```bash
+dotnet publish -c Release -r win-x64 --self-contained false -o publish
+# Requires Inno Setup 6
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\SmartMacroAI_Setup.iss
+```
+
+### Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+### Contributing
+
+Pull requests are welcome! Please open an issue first to discuss proposed changes.
+
+### Donate / Support the Developer
+
+If you find SmartMacroAI useful, consider supporting the developer to maintain and grow the project:
+
+**PayPal:**
+[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?logo=paypal)](https://www.paypal.com/paypalme/nhocbobi22)
+
+- **PayPal Email:** nhocbobi22@gmail.com
+
+### Support & Contact
+
+- **GitHub Issues:** [Report Bugs](https://github.com/TroniePh/SmartMacroAI/issues)
+- **Website:** [SmartMacroAI Landing Page](https://tronieph.github.io/SmartMacroAI-Website/)
 
 ---
 
-## 📖 Hướng dẫn sử dụng
+## Tiếng Việt
 
-### Bước 1 — Tạo kịch bản mới
+### SmartMacroAI là gì?
 
-1. Mở SmartMacroAI → vào **Macro Editor**
-2. Nhập tên kịch bản vào ô **Macro Name**
-3. Chọn **cửa sổ mục tiêu** từ dropdown (nhấn ↻ để làm mới danh sách)
+SmartMacroAI là phần mềm macro tự động hóa mạnh mẽ cho Windows, tích hợp AI. Tự động hóa các tác vụ lặp lại, farm game, điền form web, v.v. — với hỗ trợ game anti-cheat qua driver Interception cấp nhân.
 
-### Bước 2 — Thêm Actions
+### Tính năng nổi bật
 
-Kéo các khối action từ **Toolbox** vào canvas, hoặc click vào khối để thêm:
+- **Click đa chế độ** — Stealth (PostMessage), SendInput, Raw Input, Driver Level (Interception)
+- **Nhấn phím** — PostMessage, SendInput, Raw/ScanCode, Driver Level
+- **Hỗ trợ nút chuột** — Trái, Phải, Giữa trên tất cả chế độ
+- **Hỗ trợ Anti-Cheat** — Bypass driver nhân (MapleStory, Cabal Online...)
+- **Nhận diện hình ảnh** — Tìm ảnh trên màn hình, tự click vào vị trí tìm thấy
+- **OCR nhận dạng chữ** — Đọc text từ vùng màn hình qua Tesseract
+- **Tự động điền CSV** — Lặp dữ liệu CSV vào form web/desktop
+- **Tích hợp AI** — Hỗ trợ OpenAI & Gemini cho quyết định thông minh
+- **Multi Dashboard** — Theo dõi và điều khiển nhiều macro cùng lúc
+- **Giao diện song ngữ** — Tiếng Anh & Tiếng Việt với hơn 700 khóa nội dung
+- **Khóa Macro** — Bảo vệ macro bằng mật khẩu
+- **Lịch chạy** — Đặt lịch chạy macro theo giờ hoặc khi khởi động
+- **Chọn tọa độ trực quan** — Click để lấy tọa độ trên màn hình
+- **Lịch sử chạy** — Theo dõi log và thống kê thực thi macro
+- **Thông báo Telegram** — Nhận thông báo khi macro hoàn thành
+- **Chia sẻ Script** — Chia sẻ macro qua chuỗi mã hóa
+- **6 Mẫu Macro** — Sẵn sàng sử dụng với chuỗi action đầy đủ
+- **Chống phát hiện** — Di chuyển chuột giống người và delay ngẫu nhiên
+- **Tự động hóa Web** — Điều khiển trình duyệt qua Playwright
 
-```
-[Toolbox]                    [Canvas - Kịch bản của bạn]
-─────────────────            ──────────────────────────────
-🖱️ Click          →          [0] IF Image Found: login_btn.png 🎯 (Auto-Click)
-⌨️ Type           →          [1] Wait 500ms
-⏱️ Wait           →          [2] Type: "hello@example.com"
-🖼️ IF Image Found →          [3] Click (200, 350)
-🌐 Web: Navigate  →          [4] Web: Navigate → https://example.com
-```
+### Yêu cầu hệ thống
 
-Double-click vào bất kỳ action nào để **chỉnh sửa thông số**.
+| Thành phần | Tối thiểu |
+|-----------|---------|
+| Hệ điều hành | Windows 10 x64 trở lên |
+| .NET | .NET 8.0 Runtime |
+| RAM | 4 GB |
+| Lưu trữ | 200 MB |
 
-### Bước 3 — Bật Stealth Mode & Chạy
+### Bắt đầu nhanh
 
-1. Vào **Stealth Manager** → Toggle "Stealth" cho cửa sổ mục tiêu để ẩn nó
-2. Quay về **Dashboard** → nhấn **▶ Start** trên dòng kịch bản
-3. Bot bắt đầu chạy ngầm — cửa sổ mục tiêu đã ẩn nhưng vẫn nhận được clicks!
-4. Nhấn **⏹ Stop** để dừng bất kỳ lúc nào, hoặc **STOP ALL MACROS** để dừng tất cả
+1. Tải installer mới nhất tại [Releases](https://github.com/TroniePh/SmartMacroAI/releases)
+2. Chạy `SmartMacroAI_Setup.exe` với quyền Administrator
+3. Mở SmartMacroAI
+4. Bấm **+ Macro mới** — chọn mẫu hoặc tạo từ đầu
+5. Chọn cửa sổ mục tiêu — thêm action — bấm **Chạy**
 
-### Bước 4 — Hotkeys toàn cục
+### Driver Level Mode (Game Anti-Cheat)
 
-| Hotkey mặc định | Chức năng |
-|----------------|-----------|
-| `Ctrl + F5` | Ẩn/hiện cửa sổ SmartMacroAI |
-| `Ctrl + F7` | Ẩn/hiện cửa sổ mục tiêu đang chọn |
+> Cho phép macro hoạt động trong game có hệ thống chống gian lận.
 
-> ⚙️ Tùy chỉnh hotkey trong **Settings → Hotkey Configuration**
+1. Vào **Cài đặt → Driver Level**
+2. Bấm **Cài đặt ngay** — xác nhận UAC
+3. Khởi động lại máy tính
+4. Mở lại SmartMacroAI — chọn chế độ **Driver Level** trong action click/phím
+5. Bấm **Test Driver** để kiểm tra cài đặt
 
----
+**Game hỗ trợ:** MapleStory, Cabal Online và hầu hết game DirectX có anti-cheat.
 
-## 🏗️ Kiến trúc & Công nghệ
+### Ủng hộ / Donate
 
-```
-SmartMacroAI/
-├── Core/
-│   ├── Win32Api.cs          # P/Invoke: PostMessage, SendMessage, FindWindow...
-│   ├── MacroEngine.cs       # Engine thực thi đa luồng (async/await)
-│   ├── VisionEngine.cs      # OpenCV template matching + Tesseract OCR
-│   ├── PlaywrightEngine.cs  # Web automation với Microsoft Playwright
-│   └── MacroRecorder.cs     # Global mouse/keyboard hook recorder
-├── Models/
-│   ├── MacroAction.cs       # Base + derived action types (JSON polymorphic)
-│   ├── MacroScript.cs       # Script model với loop/interval settings
-│   └── ScriptManager.cs     # JSON serialization / file management
-├── ViewModels/
-│   └── DashboardRowVm.cs    # MVVM ViewModel cho Dashboard DataGrid
-├── Assets/
-│   ├── logo.ico / logo.png
-│   └── qr_bank.png
-└── installer/
-    └── SmartMacroAI_Setup.iss   # Inno Setup 6 — tạo SmartMacroAI_Setup_v*.exe
-```
+Nếu bạn thấy SmartMacroAI hữu ích, hãy ủng hộ tác giả để duy trì và phát triển dự án:
 
-### Tech Stack
+**PayPal:**
+[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?logo=paypal)](https://www.paypal.com/paypalme/nhocbobi22)
 
-| Thành phần | Công nghệ | Mục đích |
-|-----------|-----------|---------|
-| **UI Framework** | WPF (.NET 8.0) | Giao diện người dùng hiện đại |
-| **Desktop Automation** | Win32 API (P/Invoke) | PostMessage, FindWindow, PrintWindow |
-| **Image Recognition** | Emgu.CV 4.x (OpenCV) | Template matching cho IF Image Found |
-| **Text Recognition** | Tesseract OCR 5.x | Đọc text từ cửa sổ nền |
-| **Web Automation** | Microsoft Playwright 1.59 | Browser automation (Chromium) |
-| **Serialization** | System.Text.Json | Lưu/đọc kịch bản JSON |
-| **Tray Icon** | System.Windows.Forms | NotifyIcon + dynamic context menu |
-| **Installer** | Inno Setup 6 | Professional Windows installer |
+- **PayPal Email:** nhocbobi22@gmail.com
 
----
+**QR Bank (Vietnam):**
+<!-- Thêm hình QR bank vào đây nếu có -->
+Xem mã QR chuyển khoản trong phần **About** của ứng dụng.
 
-## 🔒 Tại sao "Stealth"?
+### Báo lỗi & Hỗ trợ
 
-Hầu hết các tool automation hiện tại **chiếm dụng chuột vật lý** — tức là bạn không thể làm gì khác trong khi bot chạy.
-
-SmartMacroAI hoạt động khác hoàn toàn:
-
-```
-❌ Tool thông thường:    Mouse.Move(x, y) → Click()   ← chiếm chuột vật lý
-✅ SmartMacroAI:         PostMessage(hwnd, WM_LBUTTONDOWN, ...)  ← gửi thẳng vào process
-```
-
-Lệnh `PostMessage` gửi trực tiếp sự kiện vào **message queue** của tiến trình đích — cửa sổ nhận click **mà không cần chuột phải di chuyển**. Bạn vẫn dùng máy tính bình thường trong khi bot đang tự động hóa.
-
----
-
-## 📦 Releases
-
-| Phiên bản | Ngày | Highlights |
-|-----------|------|-----------|
-| **v1.5.4** | 05/2026 | Interception Driver Level mode for game anti-cheat, Auto-detect game window → Driver Level, Auto-install driver dialog, Game Detected badge UI |
-| **v1.5.3** | 05/2026 | Fix concurrent macro OS resource contention — wrap _osResourceLock on Clipboard/SetForegroundWindow/SendInput/AttachThreadInput, TypeViaClipboardAndPasteAsync thread-safe |
-| **v1.5.2** | 04/2026 | Bug fixes: ClickAction ClickMode enum (Stealth/Raw/Hardware), IfImageFound RetryUntilFound loop, DialogResult safety verified, credit lines added |
-| **v1.5.1** | 04/2026 | Per-instance MacroRunnerState for dashboard |
-| **v1.5.0** | 04/2026 | Global hook pause khi dialog mở, MacroRecorder volatile flag, ExecuteClickAsync tách HW/PostMessage, StackTrace logging, Global HWND validation, Anti-Detection improvements |
-| **v1.4.0** | 04/2026 | Sửa TypeText clipboard, Dashboard Edit mở Macro Editor, Variable Inspector tạm thời bị ẩn, Hướng dẫn sử dụng |
-| **v1.3.0** | 04/2026 | WM_CHAR cho Shift+ký tự, semantic messages cho Ctrl+C/V, Auto-bring target khi Ghi |
-| **v1.2.1** | 04/2026 | Anti-Detection v1.1, OCR/Variables, bản vá và cải tiến |
-| **v1.2.0** | 04/2026 | Chuột Bézier (hardware mode), tab Mouse Settings, GitHub Release |
-| **v1.1.1** | 04/2026 | Patch · GitHub Actions release pipeline · version bump |
-| **v1.1.0** | 04/2026 | Admin UAC manifest · Auto Update Checker · Humanized ControlClick |
-| **v1.0.0** | 04/2026 | Ra mắt · Dashboard · Stealth Manager · Playwright Web Engine · Vision AI |
-
----
-
-## ☕ Ủng hộ tác giả
-
-Phần mềm được phát triển **hoàn toàn miễn phí** và mã nguồn mở.
-Nếu SmartMacroAI giúp ích cho công việc của bạn, hãy mời tác giả một ly cà phê!
-
-<div align="center">
-
-<img src="Assets/qr_bank.png" width="200" alt="QR Code MB Bank" />
-
-**MB Bank · PHAM QUOC DUY · 379997999**
-
-</div>
-
----
-
-## 🤝 Đóng góp & Phản hồi
-
-- 🐛 **Báo lỗi:** [GitHub Issues](https://github.com/TroniePh/SmartMacroAI/issues)
-- 💡 **Đề xuất tính năng:** [GitHub Discussions](https://github.com/TroniePh/SmartMacroAI/discussions)
-- 💬 **Hỗ trợ trực tiếp:** [facebook.com/neull](https://www.facebook.com/neull)
-- ⭐ **Nếu thấy hữu ích:** Hãy cho một Star trên GitHub!
-
----
-
-## 📄 License
-
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more information.
+- **GitHub Issues:** [Báo lỗi tại đây](https://github.com/TroniePh/SmartMacroAI/issues)
+- **Website:** [Trang giới thiệu SmartMacroAI](https://tronieph.github.io/SmartMacroAI-Website/)
 
 ---
 
 <div align="center">
 
-Made with ❤️ by **Phạm Duy**
+Made with ❤️ in Vietnam
 
-*Created by Phạm Duy — Giải pháp tự động hóa thông minh.*
-
-[![Facebook](https://img.shields.io/badge/Facebook-neull-1877F2?style=flat-square&logo=facebook)](https://www.facebook.com/neull)
-[![GitHub](https://img.shields.io/badge/GitHub-TroniePh-181717?style=flat-square&logo=github)](https://github.com/TroniePh/SmartMacroAI)
+*Created by Phạm Duy – Giải pháp tự động hóa thông minh.*
 
 </div>
