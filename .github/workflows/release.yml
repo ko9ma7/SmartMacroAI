@@ -1,8 +1,8 @@
 # SmartMacroAI — Build & Release
 # Trigger: push tag v* (e.g. v1.5.6)
-# Produces: portable self-contained ZIP + standalone EXE
+# Produces: portable self-contained ZIP
 #
-# Created by Phạm Duy – Giải pháp tự động hóa thông minh.
+# Created by Pham Duy - Giai phap tu dong hoa thong minh.
 
 name: Release
 
@@ -17,14 +17,10 @@ permissions:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  PROJECT: SmartMacroAI.csproj
 
 jobs:
   build:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        runtime: [win-x64, win-x86, win-arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,39 +31,37 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore
-        run: dotnet restore -r ${{ matrix.runtime }}
+        run: dotnet restore -r win-x64
 
       - name: Publish
-        run: >
-          dotnet publish ${{ env.PROJECT }}
-          -c Release
-          -r ${{ matrix.runtime }}
-          --self-contained true
-          -p:PublishSingleFile=false
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -o publish/${{ matrix.runtime }}
+        run: dotnet publish SmartMacroAI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:IncludeNativeLibrariesForSelfExtract=true -o publish/win-x64 --no-restore
 
       - name: Remove .pdb files
-        run: Get-ChildItem -Path "publish/${{ matrix.runtime }}" -Recurse -Filter "*.pdb" | Remove-Item -Force
+        shell: pwsh
+        run: |
+          $pdbs = Get-ChildItem -Path "publish/win-x64" -Recurse -Filter "*.pdb" -ErrorAction SilentlyContinue
+          if ($pdbs) { $pdbs | Remove-Item -Force }
 
       - name: Create ZIP
+        shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v',''
-          $zipName = "SmartMacroAI-v${version}-${{ matrix.runtime }}.zip"
-          Compress-Archive -Path "publish/${{ matrix.runtime }}/*" -DestinationPath $zipName
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v',''
+          $zipName = "SmartMacroAI-v${version}-win-x64.zip"
+          Compress-Archive -Path "publish/win-x64/*" -DestinationPath $zipName
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.runtime }}
+          name: win-x64
           path: ${{ env.ZIP_NAME }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts

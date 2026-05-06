@@ -5,6 +5,21 @@ All notable changes to SmartMacroAI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2026-05-06
+
+### Added
+- IfImageAction Then/Else container block UI on canvas (BuildIfImageBlock)
+- NestedIfImageChildTag / IfImageInsertTag for canvas child routing
+- Drag-drop into nested Then/Else branches (both IfImage and IfVariable)
+- GitHub Actions release workflow (auto-build win-x64/x86/arm64 on tag push)
+- build-release.ps1 local build script
+- Image Detection Loop template with sample ElseActions (1s wait)
+- Localization keys for IfImage Then/Else labels (EN + VI)
+
+### Fixed
+- DialogResult crash in 11 dialog windows (ComponentDispatcher.IsThreadModal guard)
+- Removed redundant UIAutomationClient / UIAutomationTypes references (0 warnings)
+
 ## [1.5.5] - 2026-05-04
 
 ### Added
